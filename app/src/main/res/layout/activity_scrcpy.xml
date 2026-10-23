@@ -79,7 +79,7 @@
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="全屏"
-                android:src="@android:drawable/ic_menu_crop"
+                android:src="@drawable/ic_nav_fullscreen"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -88,7 +88,7 @@
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="设置"
-                android:src="@android:drawable/ic_menu_preferences"
+                android:src="@drawable/ic_nav_settings"
                 app:tint="#FFFFFF" />
 
         </LinearLayout>
@@ -119,7 +119,7 @@
                 android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="返回"
-                android:src="@android:drawable/ic_menu_revert"
+                android:src="@drawable/ic_nav_back"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -129,7 +129,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="主页"
-                android:src="@android:drawable/ic_menu_myplaces"
+                android:src="@drawable/ic_nav_home"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -139,7 +139,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="多任务"
-                android:src="@android:drawable/ic_menu_sort_by_size"
+                android:src="@drawable/ic_nav_recent"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -149,7 +149,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="音量减"
-                android:src="@android:drawable/stat_notify_chat"
+                android:src="@drawable/ic_nav_vol_down"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -159,7 +159,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="音量加"
-                android:src="@android:drawable/stat_notify_call_mute"
+                android:src="@drawable/ic_nav_vol_up"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -169,7 +169,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="熄屏操作"
-                android:src="@android:drawable/ic_lock_power_off"
+                android:src="@drawable/ic_nav_power"
                 app:tint="#FFFFFF" />
 
             <ImageButton
@@ -179,7 +179,7 @@
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="投屏设置"
-                android:src="@android:drawable/ic_menu_preferences"
+                android:src="@drawable/ic_nav_settings"
                 app:tint="#FFFFFF" />
 
         </LinearLayout>
@@ -195,7 +195,7 @@
         android:layout_marginEnd="16dp"
         android:alpha="0.75"
         android:contentDescription="控制菜单"
-        android:src="@android:drawable/ic_menu_more"
+        android:src="@drawable/ic_nav_more"
         android:visibility="gone"
         app:backgroundTint="#801E1E1E"
         app:fabSize="mini"
