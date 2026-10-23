@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">ADB助手</string>
+    <string name="not_connected">未连接任何设备</string>
+    <string name="connected">已连接</string>
+    <string name="click_to_connect">点击连接设备</string>
+    <string name="device_info">设备信息</string>
+    <string name="feature_app_manager">应用管理</string>
+    <string name="feature_file_manager">文件管理</string>
+    <string name="feature_screen_mirror">屏幕投屏</string>
+    <string name="feature_terminal">终端控制台</string>
+    <string name="feature_fastboot">Fastboot刷机</string>
+    <string name="feature_utilities">实用工具</string>
+    <string name="wireless_connect">无线连接</string>
+    <string name="usb_otg_connect">USB OTG连接</string>
+    <string name="input_ip_port">请输入设备 IP 和 端口</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开连接</string>
+</resources>

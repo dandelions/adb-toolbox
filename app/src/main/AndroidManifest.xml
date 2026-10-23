@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
+    <application
+        android:name=".App"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ADBToolbox">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.ConnectActivity"
+            android:exported="false"
+            android:label="连接设备" />
+
+        <activity
+            android:name=".ui.AppManagerActivity"
+            android:exported="false"
+            android:label="应用管理" />
+
+        <activity
+            android:name=".ui.FileManagerActivity"
+            android:exported="false"
+            android:label="文件管理" />
+
+        <activity
+            android:name=".ui.ScrcpyActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize"
+            android:label="屏幕投屏" />
+
+        <activity
+            android:name=".ui.TerminalActivity"
+            android:exported="false"
+            android:label="终端控制台" />
+
+        <activity
+            android:name=".ui.FastbootActivity"
+            android:exported="false"
+            android:label="Fastboot刷机" />
+
+    </application>
+
+</manifest>
