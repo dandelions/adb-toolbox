@@ -54,17 +54,23 @@ class ScrcpyManager(
      * 计算应用指定 maxSize 后的编码推流分辨率
      */
     fun calculateTargetSize(deviceW: Int, deviceH: Int, maxSize: Int): Pair<Int, Int> {
-        if (maxSize <= 0) return Pair(deviceW, deviceH)
-        val major = maxOf(deviceW, deviceH)
-        if (major <= maxSize) return Pair(deviceW, deviceH)
+        val safeW = if (deviceW <= 0) 1080 else deviceW
+        val safeH = if (deviceH <= 0) 1920 else deviceH
+        var targetW = safeW
+        var targetH = safeH
 
-        val ratio = maxSize.toFloat() / major
-        var targetW = (deviceW * ratio).toInt()
-        var targetH = (deviceH * ratio).toInt()
-        // H.264 编码器要求宽高必须是偶数（16 或 2 对齐）
+        if (maxSize > 0) {
+            val major = maxOf(safeW, safeH)
+            if (major > maxSize) {
+                val ratio = maxSize.toFloat() / major
+                targetW = (safeW * ratio).toInt()
+                targetH = (safeH * ratio).toInt()
+            }
+        }
+        // H.264 编码与解码器要求宽高必须是偶数（16 或 2 对齐）
         targetW = (targetW / 2) * 2
         targetH = (targetH / 2) * 2
-        return Pair(targetW, targetH)
+        return Pair(maxOf(targetW, 16), maxOf(targetH, 16))
     }
 
     /**
@@ -77,21 +83,23 @@ class ScrcpyManager(
         deviceH: Int,
         onError: (String) -> Unit
     ) {
+        if (!surface.isValid) {
+            onError("Surface 显示画布尚未就绪，正切换为兼容模式...")
+            return
+        }
+
         if (isStreaming.getAndSet(true)) return
 
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize)
         val bitrate = config.bitRate
 
         streamThread = Thread({
-            var codec: MediaCodec? = null
-            var stream: AdbStream? = null
             try {
                 // 1. 初始化本地 H.264 硬件解码器
+                // 解码器输出到 Surface 时无需也不可设置 COLOR_FormatSurface (仅供编码器使用)
                 val format = MediaFormat.createVideoFormat("video/avc", targetW, targetH).apply {
-                    setInteger("max-input-size", targetW * targetH)
+                    setInteger("max-input-size", maxOf(targetW * targetH, 256 * 1024))
                     setInteger("frame-rate", config.maxFps)
-                    setInteger("color-format", 2130708361) // COLOR_FormatSurface
-                    setInteger("i-frame-interval", 1)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         setInteger(MediaFormat.KEY_OPERATING_RATE, config.maxFps)
                         setInteger(MediaFormat.KEY_PRIORITY, 0) // 实时最高优先级
@@ -99,16 +107,14 @@ class ScrcpyManager(
                 }
 
                 val activeCodec = MediaCodec.createDecoderByType("video/avc")
-                codec = activeCodec
                 mediaCodec = activeCodec
                 activeCodec.configure(format, surface, null, 0)
                 activeCodec.start()
 
                 // 2. 在被控端启动低延迟 screenrecord
                 // --output-format=h264 输出到 stdout 管道
-                val command = "shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 0 -"
+                val command = "shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -"
                 val activeStream = adbClient.connection.openStream(command)
-                stream = activeStream
                 adbStream = activeStream
 
                 // 3. 启动解码消费线程
@@ -138,7 +144,8 @@ class ScrcpyManager(
             } catch (e: Exception) {
                 Log.e(TAG, "H264 stream failed", e)
                 if (isStreaming.get()) {
-                    onError("流式投屏启动异常: ${e.message}，正切换为兼容模式...")
+                    val errorDetail = e.message ?: e.localizedMessage ?: e.javaClass.simpleName
+                    onError("流式投屏启动异常: $errorDetail，正切换为兼容模式...")
                 }
             } finally {
                 stopStream()
@@ -194,16 +201,25 @@ class ScrcpyManager(
     }
 
     private fun feedOneNal(codec: MediaCodec, data: ByteArray, offset: Int, size: Int) {
-        val inIndex = codec.dequeueInputBuffer(10000)
-        if (inIndex >= 0) {
-            val inBuffer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                codec.getInputBuffer(inIndex)
-            } else {
-                codec.inputBuffers[inIndex]
+        try {
+            val inIndex = codec.dequeueInputBuffer(10000)
+            if (inIndex >= 0) {
+                val inBuffer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    codec.getInputBuffer(inIndex)
+                } else {
+                    codec.inputBuffers[inIndex]
+                }
+                if (inBuffer == null) return
+                inBuffer.clear()
+                if (size > inBuffer.capacity()) {
+                    Log.w(TAG, "NAL size $size exceeds buffer capacity ${inBuffer.capacity()}, frame skipped")
+                    return
+                }
+                inBuffer.put(data, offset, size)
+                codec.queueInputBuffer(inIndex, 0, size, System.nanoTime() / 1000, 0)
             }
-            inBuffer?.clear()
-            inBuffer?.put(data, offset, size)
-            codec.queueInputBuffer(inIndex, 0, size, System.nanoTime() / 1000, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "feedOneNal error: ${e.message}")
         }
     }
 

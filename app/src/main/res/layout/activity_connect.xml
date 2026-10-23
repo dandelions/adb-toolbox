@@ -25,10 +25,178 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- 投屏参数预设卡片 (连接 ADB 前配置) -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="投屏预设参数"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvCurrentPresetHint"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="推荐: 720P / 4M"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="在连接设备前预先设定投屏分辨率与码率。开启投屏时将自动采用此配置，弱网环境推荐 720P / 4M。"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <!-- 分辨率选择 -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="投屏分辨率"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/toggleConnectResolution"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectResNative"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="原画"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectRes1080"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="1080P"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectRes720"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="720P"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectRes480"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="480P"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <!-- 码率选择 -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="传输码率"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/toggleConnectBitrate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectBitrate2M"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="2M"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectBitrate4M"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="4M"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectBitrate8M"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="8M"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnConnectBitrate16M"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="16M"
+                            android:textColor="@color/selector_toggle_text"
+                            app:strokeColor="@color/divider" />
+
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 无线连接卡片 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 app:cardCornerRadius="16dp"
                 app:cardElevation="2dp">
 

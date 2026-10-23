@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="@color/surface"
     android:padding="20dp">
 
     <LinearLayout
@@ -32,6 +33,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
+            app:selectionRequired="true"
             app:singleSelection="true">
 
             <com.google.android.material.button.MaterialButton
@@ -40,7 +42,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="原画" />
+                android:text="原画"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes1080"
@@ -48,7 +52,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="1080P" />
+                android:text="1080P"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes720"
@@ -56,7 +62,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="720P" />
+                android:text="720P"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes480"
@@ -64,7 +72,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="480P" />
+                android:text="480P"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -82,6 +92,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
+            app:selectionRequired="true"
             app:singleSelection="true">
 
             <com.google.android.material.button.MaterialButton
@@ -90,7 +101,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="2 Mbps" />
+                android:text="2M"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate4M"
@@ -98,7 +111,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="4 Mbps" />
+                android:text="4M"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate8M"
@@ -106,7 +121,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="8 Mbps" />
+                android:text="8M"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate16M"
@@ -114,7 +131,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="16 Mbps" />
+                android:text="16M"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -132,6 +151,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
+            app:selectionRequired="true"
             app:singleSelection="true">
 
             <com.google.android.material.button.MaterialButton
@@ -140,7 +160,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="底部" />
+                android:text="底部"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavTop"
@@ -148,7 +170,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="顶部" />
+                android:text="顶部"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavLeft"
@@ -156,7 +180,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="左侧" />
+                android:text="左侧"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavRight"
@@ -164,7 +190,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="右侧" />
+                android:text="右侧"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavHide"
@@ -172,7 +200,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="隐藏" />
+                android:text="隐藏"
+                android:textColor="@color/selector_toggle_text"
+                app:strokeColor="@color/divider" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 

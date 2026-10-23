@@ -280,11 +280,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun startStreaming() {
         stopStreaming()
+        binding.surfaceView.visibility = View.VISIBLE
+        binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.GONE
 
         val manager = scrcpyManager ?: return
         val surface = binding.surfaceView.holder.surface
+        if (!surface.isValid) {
+            return
+        }
 
         manager.startH264Stream(
             surface = surface,
@@ -342,7 +347,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun showSettingsDialog() {
         val dialogBinding = DialogScrcpySettingsBinding.inflate(layoutInflater)
-        val dialog = AlertDialog.Builder(this)
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setView(dialogBinding.root)
             .create()
 
@@ -427,7 +432,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun showQuickMenuDialog() {
         val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", "投屏设置", "返回主页")
-        AlertDialog.Builder(this)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("控制菜单")
             .setItems(items) { _, which ->
                 when (which) {

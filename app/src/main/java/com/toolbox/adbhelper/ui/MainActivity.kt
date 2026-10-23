@@ -1,5 +1,6 @@
 package com.toolbox.adbhelper.ui
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
@@ -8,9 +9,13 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.DeviceInfo
+import com.toolbox.adbhelper.core.model.NavPosition
 import com.toolbox.adbhelper.databinding.ActivityMainBinding
+import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshDeviceState()
+        updateMirrorSubtitle()
     }
 
     private fun initViews() {
@@ -60,9 +66,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnFeatureMirror.setOnClickListener {
-            checkConnectionAndRun {
+            if (DeviceManager.adbClient == null) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("屏幕投屏")
+                    .setMessage("当前尚未连接 ADB 设备。\n您可以前往连接，或者在连接前配置投屏的分辨率与码率预设。")
+                    .setPositiveButton("连接设备") { _, _ ->
+                        startActivity(Intent(this, ConnectActivity::class.java))
+                    }
+                    .setNeutralButton("配置投屏预设") { _, _ ->
+                        showScrcpyPresetDialog()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            } else {
                 startActivity(Intent(this, ScrcpyActivity::class.java))
             }
+        }
+
+        binding.btnFeatureMirror.setOnLongClickListener {
+            showScrcpyPresetDialog()
+            true
         }
 
         binding.btnFeatureTerminal.setOnClickListener {
@@ -213,5 +236,112 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun updateMirrorSubtitle() {
+        val prefs = getSharedPreferences("scrcpy_prefs", Context.MODE_PRIVATE)
+        val size = prefs.getInt("scrcpy_max_size", 1280)
+        val bitrate = prefs.getInt("scrcpy_bitrate", 4_000_000)
+        val resStr = when (size) {
+            0 -> "原画"
+            1920 -> "1080P"
+            1280 -> "720P"
+            854 -> "480P"
+            else -> "${size}P"
+        }
+        val bitStr = when (bitrate) {
+            2_000_000 -> "2M"
+            4_000_000 -> "4M"
+            8_000_000 -> "8M"
+            16_000_000 -> "16M"
+            else -> "${bitrate / 1_000_000}M"
+        }
+        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr"
+    }
+
+    private fun showScrcpyPresetDialog() {
+        val prefs = getSharedPreferences("scrcpy_prefs", Context.MODE_PRIVATE)
+        val dialogBinding = DialogScrcpySettingsBinding.inflate(layoutInflater)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .create()
+
+        val currentSize = prefs.getInt("scrcpy_max_size", 1280)
+        val currentBitrate = prefs.getInt("scrcpy_bitrate", 4_000_000)
+        val navPosName = prefs.getString("scrcpy_nav_pos", NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
+        val isFullscreen = prefs.getBoolean("scrcpy_fullscreen", false)
+        val turnScreenOff = prefs.getBoolean("scrcpy_screen_off", false)
+
+        // 1. 初始化分辨率
+        when (currentSize) {
+            0 -> dialogBinding.btnResNative.isChecked = true
+            1920 -> dialogBinding.btnRes1080.isChecked = true
+            1280 -> dialogBinding.btnRes720.isChecked = true
+            854 -> dialogBinding.btnRes480.isChecked = true
+            else -> dialogBinding.btnRes720.isChecked = true
+        }
+
+        // 2. 初始化码率
+        when (currentBitrate) {
+            2_000_000 -> dialogBinding.btnBitrate2M.isChecked = true
+            4_000_000 -> dialogBinding.btnBitrate4M.isChecked = true
+            8_000_000 -> dialogBinding.btnBitrate8M.isChecked = true
+            16_000_000 -> dialogBinding.btnBitrate16M.isChecked = true
+            else -> dialogBinding.btnBitrate4M.isChecked = true
+        }
+
+        // 3. 初始化导航栏位置
+        when (navPosName) {
+            NavPosition.BOTTOM.name -> dialogBinding.btnNavBottom.isChecked = true
+            NavPosition.TOP.name -> dialogBinding.btnNavTop.isChecked = true
+            NavPosition.LEFT.name -> dialogBinding.btnNavLeft.isChecked = true
+            NavPosition.RIGHT.name -> dialogBinding.btnNavRight.isChecked = true
+            else -> dialogBinding.btnNavBottom.isChecked = true
+        }
+
+        // 4. 开关
+        dialogBinding.switchFullscreen.isChecked = isFullscreen
+        dialogBinding.switchScreenOff.isChecked = turnScreenOff
+
+        dialogBinding.btnApplySettings.setOnClickListener {
+            val newSize = when (dialogBinding.toggleResolution.checkedButtonId) {
+                R.id.btnResNative -> 0
+                R.id.btnRes1080 -> 1920
+                R.id.btnRes720 -> 1280
+                R.id.btnRes480 -> 854
+                else -> 1280
+            }
+
+            val newBitrate = when (dialogBinding.toggleBitrate.checkedButtonId) {
+                R.id.btnBitrate2M -> 2_000_000
+                R.id.btnBitrate4M -> 4_000_000
+                R.id.btnBitrate8M -> 8_000_000
+                R.id.btnBitrate16M -> 16_000_000
+                else -> 4_000_000
+            }
+
+            val newNavPos = when (dialogBinding.toggleNavPosition.checkedButtonId) {
+                R.id.btnNavBottom -> NavPosition.BOTTOM.name
+                R.id.btnNavTop -> NavPosition.TOP.name
+                R.id.btnNavLeft -> NavPosition.LEFT.name
+                R.id.btnNavRight -> NavPosition.RIGHT.name
+                R.id.btnNavHide -> NavPosition.HIDE.name
+                else -> NavPosition.BOTTOM.name
+            }
+
+            prefs.edit()
+                .putInt("scrcpy_max_size", newSize)
+                .putInt("scrcpy_bitrate", newBitrate)
+                .putString("scrcpy_nav_pos", newNavPos)
+                .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
+                .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
+                .apply()
+
+            updateMirrorSubtitle()
+            dialog.dismiss()
+            Toast.makeText(this, "投屏预设配置已保存！", Toast.LENGTH_SHORT).show()
+        }
+
+        dialog.show()
     }
 }
