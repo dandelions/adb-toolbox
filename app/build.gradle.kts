@@ -11,14 +11,14 @@ android {
         applicationId = "com.toolbox.adbhelper"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        create("debugShared") {
+        create("sharedKey") {
             storeFile = file("debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
@@ -28,10 +28,11 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugShared")
+            signingConfig = signingConfigs.getByName("sharedKey")
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("sharedKey")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

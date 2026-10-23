@@ -1,11 +1,14 @@
 package com.toolbox.adbhelper.ui
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.chip.Chip
@@ -21,11 +24,28 @@ import com.toolbox.adbhelper.databinding.ActivityConnectBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 class ConnectActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConnectBinding
     private lateinit var usbHelper: UsbManagerHelper
+
+    private val exportKeysLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        if (uri != null) {
+            exportKeysToUri(uri)
+        }
+    }
+
+    private val importKeysLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            importKeysFromUri(uri)
+        }
+    }
 
     companion object {
         private const val PREFS_NAME = "adb_connect_prefs"
@@ -86,6 +106,14 @@ class ConnectActivity : AppCompatActivity() {
 
         binding.btnScanUsb.setOnClickListener {
             scanUsbDevices()
+        }
+
+        binding.btnExportKeys.setOnClickListener {
+            exportKeysLauncher.launch("adb_keys_backup.zip")
+        }
+
+        binding.btnImportKeys.setOnClickListener {
+            importKeysLauncher.launch("application/zip")
         }
     }
 
@@ -266,6 +294,94 @@ class ConnectActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     binding.btnScanUsb.isEnabled = true
                     Toast.makeText(this@ConnectActivity, "USB 连接失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    private fun exportKeysToUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // 确保密钥已生成
+                AdbCrypto.loadOrGenerate(this@ConnectActivity)
+                val (privFile, pubFile) = AdbCrypto.getKeyFiles(this@ConnectActivity)
+                if (!privFile.exists() || !pubFile.exists()) {
+                    throw IllegalStateException("未找到本机 ADB 密钥文件")
+                }
+
+                contentResolver.openOutputStream(uri)?.use { os ->
+                    ZipOutputStream(os).use { zos ->
+                        zos.putNextEntry(ZipEntry("adbkey"))
+                        zos.write(privFile.readBytes())
+                        zos.closeEntry()
+
+                        zos.putNextEntry(ZipEntry("adbkey.pub"))
+                        zos.write(pubFile.readBytes())
+                        zos.closeEntry()
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    AlertDialog.Builder(this@ConnectActivity)
+                        .setTitle("导出备份成功")
+                        .setMessage("ADB 认证密钥已成功保存到指定位置！\n如之后卸载应用或在其他设备安装，导入该备份文件即可继承配对授权，无需对端重新确认。")
+                        .setPositiveButton("好的", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ConnectActivity, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun importKeysFromUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                var privBytes: ByteArray? = null
+                var pubBytes: ByteArray? = null
+
+                contentResolver.openInputStream(uri)?.use { `is` ->
+                    ZipInputStream(`is`).use { zis ->
+                        var entry: ZipEntry? = zis.nextEntry
+                        while (entry != null) {
+                            val baos = ByteArrayOutputStream()
+                            val buffer = ByteArray(1024)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                baos.write(buffer, 0, len)
+                            }
+                            if (entry.name == "adbkey") {
+                                privBytes = baos.toByteArray()
+                            } else if (entry.name == "adbkey.pub") {
+                                pubBytes = baos.toByteArray()
+                            }
+                            zis.closeEntry()
+                            entry = zis.nextEntry
+                        }
+                    }
+                }
+
+                if (privBytes == null || pubBytes == null) {
+                    throw IllegalArgumentException("压缩包中未包含有效的 adbkey 与 adbkey.pub")
+                }
+
+                val ok = AdbCrypto.saveKeyPair(this@ConnectActivity, privBytes!!, pubBytes!!)
+                if (!ok) {
+                    throw IllegalStateException("解析或校验导入的 RSA 密钥失败")
+                }
+
+                withContext(Dispatchers.Main) {
+                    AlertDialog.Builder(this@ConnectActivity)
+                        .setTitle("导入密钥成功")
+                        .setMessage("已恢复 ADB 配对公私钥！\n现在连接此前已授权过的对端设备，将直接认证通过，无需重新在对端确认授权弹窗。")
+                        .setPositiveButton("确定", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ConnectActivity, "导入失败: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }

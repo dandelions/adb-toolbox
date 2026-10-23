@@ -56,6 +56,30 @@ class AdbCrypto(private val keyPair: KeyPair) {
 
             return AdbCrypto(kp)
         }
+
+        fun getKeyFiles(context: Context): Pair<File, File> {
+            val keyDir = File(context.filesDir, "keys")
+            if (!keyDir.exists()) keyDir.mkdirs()
+            return Pair(File(keyDir, "adbkey"), File(keyDir, "adbkey.pub"))
+        }
+
+        fun saveKeyPair(context: Context, privBytes: ByteArray, pubBytes: ByteArray): Boolean {
+            return try {
+                val kf = KeyFactory.getInstance("RSA")
+                val privSpec = PKCS8EncodedKeySpec(privBytes)
+                val pubSpec = X509EncodedKeySpec(pubBytes)
+                kf.generatePrivate(privSpec)
+                kf.generatePublic(pubSpec)
+
+                val (privFile, pubFile) = getKeyFiles(context)
+                privFile.writeBytes(privBytes)
+                pubFile.writeBytes(pubBytes)
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
     }
 
     /**
