@@ -98,26 +98,28 @@ class ScrcpyManager(
                     }
                 }
 
-                codec = MediaCodec.createDecoderByType("video/avc")
-                codec.configure(format, surface, null, 0)
-                codec.start()
-                mediaCodec = codec
+                val activeCodec = MediaCodec.createDecoderByType("video/avc")
+                codec = activeCodec
+                mediaCodec = activeCodec
+                activeCodec.configure(format, surface, null, 0)
+                activeCodec.start()
 
                 // 2. 在被控端启动低延迟 screenrecord
                 // --output-format=h264 输出到 stdout 管道
                 val command = "shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 0 -"
-                stream = adbClient.connection.openStream(command)
-                adbStream = stream
+                val activeStream = adbClient.connection.openStream(command)
+                stream = activeStream
+                adbStream = activeStream
 
                 // 3. 启动解码消费线程
                 val decodeThread = Thread({
                     val info = MediaCodec.BufferInfo()
                     while (isStreaming.get()) {
                         try {
-                            val outIndex = codec.dequeueOutputBuffer(info, 10000)
+                            val outIndex = activeCodec.dequeueOutputBuffer(info, 10000)
                             if (outIndex >= 0) {
                                 // 立即渲染到 Surface
-                                codec.releaseOutputBuffer(outIndex, true)
+                                activeCodec.releaseOutputBuffer(outIndex, true)
                             }
                         } catch (e: Exception) {
                             if (isStreaming.get()) {
@@ -130,8 +132,8 @@ class ScrcpyManager(
                 decodeThread.start()
 
                 // 4. 输入流读取并投递给 MediaCodec
-                val inputStream = stream.inputStream
-                feedH264ToCodec(inputStream, codec)
+                val inputStream = activeStream.inputStream
+                feedH264ToCodec(inputStream, activeCodec)
 
             } catch (e: Exception) {
                 Log.e(TAG, "H264 stream failed", e)
