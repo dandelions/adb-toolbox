@@ -14,77 +14,20 @@ import javax.crypto.Cipher
 
 class AdbCrypto(private val keyPair: KeyPair) {
 
-    fun sign(token: ByteArray): ByteArray {
-        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, keyPair.private)
-        return cipher.doFinal(token)
-    }
-
-    fun getPublicKeyBytes(): ByteArray {
-        val pub = keyPair.public as RSAPublicKey
-        val mod = pub.modulus
-        val exp = pub.publicExponent
-
-        // ADB public key 格式 (mincrypt RSA 结构体)
-        // struct RSAPublicKey {
-        //     int len;                  /* Length of n[] in number of uint32_t */
-        //     uint32_t n0inv;           /* -1 / n[0] mod 2^32 */
-        //     uint32_t n[RSANUMWORDS];  /* modulus as little endian array */
-        //     uint32_t rr[RSANUMWORDS]; /* R^2 as little endian array */
-        //     int exponent;             /* 3 or 65537 */
-        // };
-        // 简单标准：很多 Android 版本支持标准 X509 / mincrypt 格式，通过 Base64 编码附加标识
-        val keyBytes = convertToAdbFormat(pub)
-        val b64 = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
-        val full = "$b64 ADBToolbox@Android\u0000"
-        return full.toByteArray(Charsets.UTF_8)
-    }
-
-    private fun convertToAdbFormat(pub: RSAPublicKey): ByteArray {
-        val mod = pub.modulus
-        val numWords = 2048 / 32 // 64 words for 2048-bit key
-        val buf = ByteBuffer.allocate(524).order(ByteOrder.LITTLE_ENDIAN)
-
-        buf.putInt(numWords)
-
-        // n0inv = -1 / n[0] mod 2^32
-        val r32 = java.math.BigInteger.valueOf(2).pow(32)
-        val n0 = mod.remainder(r32)
-        val n0inv = n0.modInverse(r32).negate().remainder(r32).add(r32).remainder(r32)
-        buf.putInt(n0inv.toInt())
-
-        // n: modulus little endian
-        val modBytes = mod.toByteArray()
-        val nWords = IntArray(numWords)
-        for (i in 0 until numWords) {
-            var word = 0
-            for (j in 0 until 4) {
-                val byteIndex = modBytes.size - 1 - (i * 4 + j)
-                val b = if (byteIndex >= 0) modBytes[byteIndex].toInt() and 0xFF else 0
-                word = word or (b shl (j * 8))
-            }
-            buf.putInt(word)
-        }
-
-        // rr = (2^2048)^2 mod n
-        val r = java.math.BigInteger.valueOf(2).pow(2048)
-        val rr = r.multiply(r).remainder(mod)
-        val rrBytes = rr.toByteArray()
-        for (i in 0 until numWords) {
-            var word = 0
-            for (j in 0 until 4) {
-                val byteIndex = rrBytes.size - 1 - (i * 4 + j)
-                val b = if (byteIndex >= 0) rrBytes[byteIndex].toInt() and 0xFF else 0
-                word = word or (b shl (j * 8))
-            }
-            buf.putInt(word)
-        }
-
-        buf.putInt(pub.publicExponent.toInt())
-        return buf.array()
-    }
-
     companion object {
+        // RSA signature padding for SHA-1 digest (PKCS#1 v1.5 standard padding for sign)
+        // 2 + 218 + 1 + 15 = 236 bytes padding, combined with 20 bytes SHA-1 token = 256 bytes (2048-bit key)
+        private val SIGNATURE_PADDING = byteArrayOf(
+            0x00.toByte(), 0x01.toByte(),
+            *ByteArray(218) { 0xFF.toByte() },
+            0x00.toByte(),
+            // ASN.1 DigestInfo for SHA-1
+            0x30.toByte(), 0x21.toByte(), 0x30.toByte(), 0x09.toByte(),
+            0x06.toByte(), 0x05.toByte(), 0x2b.toByte(), 0x0e.toByte(),
+            0x03.toByte(), 0x02.toByte(), 0x1a.toByte(), 0x05.toByte(),
+            0x00.toByte(), 0x04.toByte(), 0x14.toByte()
+        )
+
         fun loadOrGenerate(context: Context): AdbCrypto {
             val keyDir = File(context.filesDir, "keys")
             if (!keyDir.exists()) keyDir.mkdirs()
@@ -113,5 +56,58 @@ class AdbCrypto(private val keyPair: KeyPair) {
 
             return AdbCrypto(kp)
         }
+    }
+
+    /**
+     * Signs the 20-byte ADB auth token using RSA with PKCS#1 v1.5 padding and SHA-1 ASN.1 header.
+     */
+    fun sign(token: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("RSA/ECB/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, keyPair.private)
+        val data = ByteArray(SIGNATURE_PADDING.size + token.size)
+        System.arraycopy(SIGNATURE_PADDING, 0, data, 0, SIGNATURE_PADDING.size)
+        System.arraycopy(token, 0, data, SIGNATURE_PADDING.size, token.size)
+        return cipher.doFinal(data)
+    }
+
+    /**
+     * Converts a standard RSAPublicKey object to the special ADB format (mincrypt format).
+     */
+    fun getPublicKeyBytes(): ByteArray {
+        val pub = keyPair.public as RSAPublicKey
+        val keyBytes = convertToAdbFormat(pub)
+        val b64 = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
+        val full = "$b64 adbhelper@toolbox\u0000"
+        return full.toByteArray(Charsets.UTF_8)
+    }
+
+    private fun convertToAdbFormat(pub: RSAPublicKey): ByteArray {
+        val keyWords = 64 // 2048 bits / 32 bits per word
+        val r32 = java.math.BigInteger.ZERO.setBit(32)
+        var n = pub.modulus
+        val r = java.math.BigInteger.ZERO.setBit(keyWords * 32)
+        var rr = r.modPow(java.math.BigInteger.valueOf(2), n)
+        val rem = n.remainder(r32)
+        val n0inv = rem.modInverse(r32)
+
+        val myN = IntArray(keyWords)
+        val myRr = IntArray(keyWords)
+        for (i in 0 until keyWords) {
+            val resRr = rr.divideAndRemainder(r32)
+            rr = resRr[0]
+            myRr[i] = resRr[1].toInt()
+
+            val resN = n.divideAndRemainder(r32)
+            n = resN[0]
+            myN[i] = resN[1].toInt()
+        }
+
+        val buf = ByteBuffer.allocate(524).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(keyWords)
+        buf.putInt(n0inv.negate().toInt())
+        for (v in myN) buf.putInt(v)
+        for (v in myRr) buf.putInt(v)
+        buf.putInt(pub.publicExponent.toInt())
+        return buf.array()
     }
 }

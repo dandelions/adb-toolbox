@@ -25,9 +25,19 @@ class AdbConnection(
     // 握手同步锁
     private val connectLock = Object()
 
-    fun connect(timeoutMs: Long = 10000) {
-        // 1. 发送 CNXN 握手消息
-        val banner = "host::ADBToolbox\u0000".toByteArray(Charsets.UTF_8)
+    @Volatile
+    private var sentSignature = false
+
+    @Volatile
+    private var lastError: String? = null
+
+    var onAuthPrompt: (() -> Unit)? = null
+
+    fun connect(timeoutMs: Long = 30000) {
+        sentSignature = false
+        lastError = null
+        // 1. 发送标准 CNXN 握手消息
+        val banner = "host::\u0000".toByteArray(Charsets.UTF_8)
         val cnxnMsg = AdbMessage.create(
             command = AdbMessage.CMD_CNXN,
             arg0 = AdbMessage.CONNECT_VERSION,
@@ -46,9 +56,12 @@ class AdbConnection(
                 val elapsed = System.currentTimeMillis() - start
                 if (elapsed >= timeoutMs) {
                     close()
-                    throw IOException("Connection timeout waiting for handshake")
+                    throw IOException("连接握手超时（等待设备授权）。若目标设备已弹出授权窗口，请勾选始终允许后重试。")
                 }
                 connectLock.wait(1000)
+            }
+            if (!isConnected.get()) {
+                throw IOException(lastError ?: "连接握手失败：目标设备断开连接或拒绝授权")
             }
         }
     }
@@ -63,6 +76,7 @@ class AdbConnection(
             } catch (e: Exception) {
                 if (!isClosed.get()) {
                     Log.e(TAG, "Read error: ${e.message}")
+                    lastError = e.message ?: "读取 ADB 响应异常"
                     close()
                 }
             }
@@ -80,21 +94,36 @@ class AdbConnection(
             }
             AdbMessage.CMD_AUTH -> {
                 if (msg.arg0 == AdbMessage.AUTH_TYPE_TOKEN) {
-                    // 设备发来认证 token
-                    try {
-                        val signature = crypto.sign(msg.payload)
-                        val reply = AdbMessage.create(
-                            command = AdbMessage.CMD_AUTH,
-                            arg0 = AdbMessage.AUTH_TYPE_SIGNATURE,
-                            arg1 = 0,
-                            payload = signature
-                        )
-                        reply.writeToStream(transport.outputStream)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Sign token failed, fallback to public key", e)
-                        sendPublicKey()
+                    if (sentSignature) {
+                        // 已经发送过私钥签名，说明被控端尚未信任此密钥，转为发送公钥请求弹窗授权
+                        Log.i(TAG, "Signature not trusted or pending, sending public key for authorization dialog")
+                        try {
+                            onAuthPrompt?.invoke()
+                            sendPublicKey()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send public key", e)
+                        }
+                    } else {
+                        // 首次收到 TOKEN 质询，使用私钥签名回复
+                        try {
+                            val signature = crypto.sign(msg.payload)
+                            val reply = AdbMessage.create(
+                                command = AdbMessage.CMD_AUTH,
+                                arg0 = AdbMessage.AUTH_TYPE_SIGNATURE,
+                                arg1 = 0,
+                                payload = signature
+                            )
+                            sentSignature = true
+                            reply.writeToStream(transport.outputStream)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Sign token failed, fallback to public key", e)
+                            sentSignature = true
+                            onAuthPrompt?.invoke()
+                            sendPublicKey()
+                        }
                     }
                 } else {
+                    onAuthPrompt?.invoke()
                     sendPublicKey()
                 }
             }

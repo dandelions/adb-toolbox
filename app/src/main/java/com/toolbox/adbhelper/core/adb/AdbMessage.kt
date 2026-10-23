@@ -30,7 +30,7 @@ class AdbMessage(
         const val AUTH_TYPE_RSAPUBLICKEY = 3
 
         const val CONNECT_VERSION = 0x01000000
-        const val CONNECT_MAXDATA = 256 * 1024
+        const val CONNECT_MAXDATA = 1024 * 1024
 
         fun create(command: Int, arg0: Int, arg1: Int, payload: ByteArray = ByteArray(0)): AdbMessage {
             var sum = 0

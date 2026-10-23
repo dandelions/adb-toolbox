@@ -50,7 +50,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="请确保两台设备处于同一WiFi局域网，并且对端设备已开启无线调试。"
+                        android:text="请确保两台设备处于同一WiFi局域网，且对端设备已开启无线调试。\n注意：Android 11+ 无线调试请查看对端显示的5位随机端口（如 38xxx）；旧版网络ADB通常为 5555。"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
@@ -58,7 +58,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
-                        android:hint="设备 IP 地址 (例如: 192.168.1.100)">
+                        android:hint="设备 IP 地址 (支持直接粘贴 192.168.1.100:38421)">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etIpAddress"
@@ -71,7 +71,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:hint="端口号 (默认: 5555)">
+                        android:hint="端口号 (默认 5555，Android 11+ 请填实际5位端口)">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etPort"
@@ -81,12 +81,39 @@
                             android:text="5555" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <TextView
+                        android:id="@+id/tvWifiStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/primary"
+                        android:textSize="13sp"
+                        android:visibility="gone" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnConnectWifi"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
+                        android:layout_marginTop="12dp"
                         android:text="连接无线设备" />
+
+                    <!-- 历史连接记录 -->
+                    <TextView
+                        android:id="@+id/tvHistoryTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="历史连接"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupHistory"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:visibility="gone" />
 
                 </LinearLayout>
 
