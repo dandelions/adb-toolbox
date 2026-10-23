@@ -1,112 +1,204 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
-    android:orientation="vertical">
+    android:background="#000000">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="#1E1E1E"
-        app:navigationIcon="?attr/homeAsUpIndicator"
-        app:navigationIconTint="#FFFFFF"
-        app:title="屏幕镜像与控制"
-        app:titleTextColor="#FFFFFF" />
-
-    <!-- 投屏画面显示区 -->
+    <!-- 投屏主画面区 -->
     <FrameLayout
         android:id="@+id/flScreenContainer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent">
 
+        <!-- 硬件解码低延迟 SurfaceView -->
+        <SurfaceView
+            android:id="@+id/surfaceView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="visible" />
+
+        <!-- 截图兼容模式 ImageView -->
         <ImageView
             android:id="@+id/ivScreen"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_gravity="center"
             android:contentDescription="Screen Stream"
-            android:scaleType="fitCenter" />
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
 
+        <!-- 加载中指示器 -->
         <ProgressBar
             android:id="@+id/pbLoading"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
+            android:indeterminateTint="#FFFFFF"
+            android:visibility="visible" />
+
+        <!-- 状态提示文字 -->
+        <TextView
+            android:id="@+id/tvStreamStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="48dp"
+            android:textColor="#B0BEC5"
+            android:textSize="13sp"
             android:visibility="gone" />
 
     </FrameLayout>
 
-    <!-- 快捷按键控制栏 -->
-    <LinearLayout
+    <!-- 顶部 Toolbar (全屏时可隐藏) -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:layout_gravity="top"
+        android:background="#99000000"
+        app:navigationIcon="?attr/homeAsUpIndicator"
+        app:navigationIconTint="#FFFFFF"
+        app:title="屏幕镜像"
+        app:titleTextColor="#FFFFFF">
+
+        <!-- 右侧顶部快捷按钮 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingEnd="8dp">
+
+            <ImageButton
+                android:id="@+id/btnToolbarFullscreen"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="全屏"
+                android:src="@android:drawable/ic_menu_crop"
+                app:tint="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btnToolbarSettings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="设置"
+                android:src="@android:drawable/ic_menu_preferences"
+                app:tint="#FFFFFF" />
+
+        </LinearLayout>
+
+    </com.google.android.material.appbar.MaterialToolbar>
+
+    <!-- 虚拟按键控制导航栏 (支持底部、顶部、左侧、右侧停靠或隐藏) -->
+    <FrameLayout
+        android:id="@+id/navBarWrapper"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#1E1E1E"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingVertical="8dp">
+        android:layout_gravity="bottom|center_horizontal">
 
-        <ImageButton
-            android:id="@+id/btnBack"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"
-            android:src="@android:drawable/ic_menu_revert"
-            app:tint="#FFFFFF" />
+        <LinearLayout
+            android:id="@+id/navBarContent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#B31E1E1E"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp">
 
-        <ImageButton
-            android:id="@+id/btnHome"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Home"
-            android:src="@android:drawable/ic_menu_myplaces"
-            app:tint="#FFFFFF" />
+            <ImageButton
+                android:id="@+id/btnBack"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="返回"
+                android:src="@android:drawable/ic_menu_revert"
+                app:tint="#FFFFFF" />
 
-        <ImageButton
-            android:id="@+id/btnRecent"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Recents"
-            android:src="@android:drawable/ic_menu_sort_by_size"
-            app:tint="#FFFFFF" />
+            <ImageButton
+                android:id="@+id/btnHome"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="主页"
+                android:src="@android:drawable/ic_menu_myplaces"
+                app:tint="#FFFFFF" />
 
-        <ImageButton
-            android:id="@+id/btnVolDown"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Vol-"
-            android:src="@android:drawable/stat_notify_chat"
-            app:tint="#FFFFFF" />
+            <ImageButton
+                android:id="@+id/btnRecent"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="多任务"
+                android:src="@android:drawable/ic_menu_sort_by_size"
+                app:tint="#FFFFFF" />
 
-        <ImageButton
-            android:id="@+id/btnVolUp"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Vol+"
-            android:src="@android:drawable/stat_notify_call_mute"
-            app:tint="#FFFFFF" />
+            <ImageButton
+                android:id="@+id/btnVolDown"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="音量减"
+                android:src="@android:drawable/stat_notify_chat"
+                app:tint="#FFFFFF" />
 
-        <ImageButton
-            android:id="@+id/btnPower"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Power"
-            android:src="@android:drawable/ic_lock_power_off"
-            app:tint="#FFFFFF" />
+            <ImageButton
+                android:id="@+id/btnVolUp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="音量加"
+                android:src="@android:drawable/stat_notify_call_mute"
+                app:tint="#FFFFFF" />
 
-    </LinearLayout>
+            <ImageButton
+                android:id="@+id/btnScreenOff"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="熄屏操作"
+                android:src="@android:drawable/ic_lock_power_off"
+                app:tint="#FFFFFF" />
 
-</LinearLayout>
+            <ImageButton
+                android:id="@+id/btnSettings"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="投屏设置"
+                android:src="@android:drawable/ic_menu_preferences"
+                app:tint="#FFFFFF" />
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- 浮动悬浮球（当控制栏隐藏或浮动模式时快速唤起） -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabQuickMenu"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="16dp"
+        android:alpha="0.75"
+        android:contentDescription="控制菜单"
+        android:src="@android:drawable/ic_menu_more"
+        android:visibility="gone"
+        app:backgroundTint="#801E1E1E"
+        app:fabSize="mini"
+        app:tint="#FFFFFF" />
+
+</FrameLayout>

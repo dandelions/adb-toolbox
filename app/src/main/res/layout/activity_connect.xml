@@ -64,7 +64,8 @@
                             android:id="@+id/etIpAddress"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:inputType="textUri" />
+                            android:inputType="textUri"
+                            android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -78,7 +79,8 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="number"
-                            android:text="5555" />
+                            android:text="5555"
+                            android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <TextView

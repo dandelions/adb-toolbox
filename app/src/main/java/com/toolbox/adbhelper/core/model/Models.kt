@@ -58,3 +58,22 @@ data class FileItem(
     val owner: String,
     val lastModified: String
 ) : Serializable
+
+enum class NavPosition {
+    BOTTOM,
+    TOP,
+    LEFT,
+    RIGHT,
+    FLOATING,
+    HIDE
+}
+
+data class ScrcpyConfig(
+    var maxSize: Int = 1280, // 0 为原画，常见 1920 (1080P), 1280 (720P), 854 (480P)
+    var bitRate: Int = 4_000_000, // 码率 (2M, 4M, 8M, 16M)
+    var maxFps: Int = 60,
+    var turnScreenOff: Boolean = false, // 熄屏运行
+    var stayAwake: Boolean = true,
+    var navPosition: NavPosition = NavPosition.BOTTOM,
+    var isFullscreen: Boolean = false
+) : Serializable

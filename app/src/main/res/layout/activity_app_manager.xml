@@ -41,7 +41,8 @@
                     android:layout_height="wrap_content"
                     android:hint="搜索应用名或包名"
                     android:imeOptions="actionSearch"
-                    android:inputType="text" />
+                    android:inputType="text"
+                    android:textColor="@color/text_primary" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.chip.ChipGroup
