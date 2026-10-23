@@ -297,6 +297,8 @@ class ConnectActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
     private fun exportKeysToUri(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
