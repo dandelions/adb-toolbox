@@ -93,11 +93,23 @@ class AdbStream(
 
     fun isClosed(): Boolean = isClosed.get()
 
-    fun read(): ByteArray? {
+    fun read(): ByteArray? = read(0)
+
+    fun read(timeoutMs: Long): ByteArray? {
         if (isClosed.get() && receiveQueue.isEmpty()) return null
         return try {
-            val data = receiveQueue.take()
-            if (data.isEmpty() && isClosed.get()) null else data
+            val data = if (timeoutMs > 0) {
+                receiveQueue.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } else {
+                receiveQueue.take()
+            }
+            if (data == null) {
+                null
+            } else if (data.isEmpty() && isClosed.get()) {
+                null
+            } else {
+                data
+            }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             null

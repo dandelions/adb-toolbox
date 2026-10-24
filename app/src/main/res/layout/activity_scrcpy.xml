@@ -98,6 +98,65 @@
 
     </com.google.android.material.appbar.MaterialToolbar>
 
+    <!-- 诊断信息状态条（位于 Toolbar 下方） -->
+    <LinearLayout
+        android:id="@+id/layoutDiagBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="?attr/actionBarSize"
+        android:background="#B3121212"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="5dp">
+
+        <View
+            android:id="@+id/vStatusIndicator"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#FFB300" />
+
+        <TextView
+            android:id="@+id/tvDiagText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="marquee"
+            android:singleLine="true"
+            android:text="正在初始化投屏通道..."
+            android:textColor="#E0E0E0"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btnQuickSwitchMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#33FFFFFF"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="切换模式"
+            android:textColor="#80D8FF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btnQuickWake"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#33FFFFFF"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="唤醒屏幕"
+            android:textColor="#FFD54F"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
     <!-- 虚拟按键控制导航栏 (支持底部、顶部、左侧、右侧停靠或隐藏) -->
     <FrameLayout
         android:id="@+id/navBarWrapper"

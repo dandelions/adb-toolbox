@@ -38,6 +38,19 @@ class ScrcpyManager(
     @Volatile
     private var preferredCaptureMethod = 0
 
+    fun getPreferredCaptureMethod(): Int = preferredCaptureMethod
+
+    fun setPreferredCaptureMethod(method: Int) {
+        preferredCaptureMethod = method.coerceIn(0, 3)
+    }
+
+    fun getPreferredCaptureMethodName(): String = when (preferredCaptureMethod) {
+        1 -> "Exec管道"
+        2 -> "Base64管道"
+        3 -> "临时文件"
+        else -> "自动探测"
+    }
+
     @Volatile
     private var lastCaptureError: String = ""
 
@@ -495,15 +508,24 @@ class ScrcpyManager(
 
     private fun captureFrameViaExec(targetW: Int, targetH: Int): Bitmap? {
         try {
-            val raw = readStreamBytes("exec:screencap -p", 4000)
+            val raw = readStreamBytes("exec:screencap -p", 3500)
             if (raw.isEmpty()) {
                 lastCaptureError = "exec:screencap 无输出"
                 return null
             }
             if (raw.size > 8) {
-                val offset = findPngHeader(raw)
+                var offset = findPngHeader(raw)
+                var validData = raw
+                if (offset < 0) {
+                    val sanitized = sanitizePngBytes(raw)
+                    val offset2 = findPngHeader(sanitized)
+                    if (offset2 >= 0) {
+                        offset = offset2
+                        validData = sanitized
+                    }
+                }
                 if (offset >= 0) {
-                    val bmp = BitmapFactory.decodeByteArray(raw, offset, raw.size - offset)
+                    val bmp = BitmapFactory.decodeByteArray(validData, offset, validData.size - offset)
                     if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
                     lastCaptureError = "BitmapFactory 解码失败"
                 } else {
@@ -588,16 +610,21 @@ class ScrcpyManager(
         }
     }
 
-    private fun readStreamBytes(command: String, timeoutMs: Long = 4000): ByteArray {
+    private fun readStreamBytes(command: String, timeoutMs: Long = 3500): ByteArray {
         val stream = try {
             adbClient.connection.openStream(command, timeoutMs)
         } catch (_: Exception) {
             return ByteArray(0)
         }
         val baos = ByteArrayOutputStream(512 * 1024)
+        val startTime = System.currentTimeMillis()
         try {
             while (true) {
-                val chunk = stream.read() ?: break
+                val elapsed = System.currentTimeMillis() - startTime
+                val remain = timeoutMs - elapsed
+                if (remain <= 0) break
+                val chunk = stream.read(minOf(remain, 1200L)) ?: break
+                if (chunk.isEmpty()) break
                 baos.write(chunk)
             }
         } catch (_: Exception) {
@@ -665,10 +692,15 @@ class ScrcpyManager(
     }
 
     /**
-     * 被控端点亮屏幕
+     * 被控端点亮屏幕并尝试解锁
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
-        adbClient.executeShell("input keyevent 224") // KEYCODE_WAKEUP
+        try {
+            adbClient.executeShell("input keyevent 224") // KEYCODE_WAKEUP
+            adbClient.executeShell("wm dismiss-keyguard") // 解锁无密码锁屏
+        } catch (e: Exception) {
+            Log.w(TAG, "turnScreenOn failed: ${e.message}")
+        }
     }
 
     /**

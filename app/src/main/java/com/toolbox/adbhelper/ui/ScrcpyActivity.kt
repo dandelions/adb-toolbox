@@ -76,9 +76,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         initViews()
         initTouchControl()
 
+        binding.surfaceView.setZOrderMediaOverlay(true)
         binding.surfaceView.holder.addCallback(this)
 
         lifecycleScope.launch(Dispatchers.IO) {
+            // 主动唤醒屏幕并解锁无密码锁屏，防止对端黑屏/息屏导致捕获全黑
+            scrcpyManager?.turnScreenOn()
+
             val (w, h) = scrcpyManager?.getDeviceResolution() ?: Pair(1080, 2400)
             deviceWidth = w
             deviceHeight = h
@@ -150,6 +154,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             showQuickMenuDialog()
         }
 
+        // 诊断栏快捷按钮
+        binding.btnQuickSwitchMode.setOnClickListener {
+            toggleStreamMode()
+        }
+        binding.btnQuickWake.setOnClickListener {
+            lifecycleScope.launch(Dispatchers.IO) {
+                scrcpyManager?.turnScreenOn()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ScrcpyActivity, "已向对端发送唤醒与解锁指令", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
         applyNavPosition(config.navPosition)
         applyFullscreen(config.isFullscreen)
 
@@ -189,9 +206,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         if (fullscreen) {
             binding.toolbar.visibility = View.GONE
+            binding.layoutDiagBar.visibility = View.GONE
             windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             binding.toolbar.visibility = View.VISIBLE
+            binding.layoutDiagBar.visibility = View.VISIBLE
             windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
         }
     }
@@ -339,6 +358,24 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    private fun updateDiagBar(indicatorColor: String, text: String) {
+        try {
+            binding.vStatusIndicator.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor(indicatorColor))
+            binding.tvDiagText.text = text
+        } catch (_: Exception) {}
+    }
+
+    private fun toggleStreamMode() {
+        if (isFallbackMode) {
+            Toast.makeText(this, "正在切换至极速硬件推流(H264)...", Toast.LENGTH_SHORT).show()
+            startStreaming()
+        } else {
+            Toast.makeText(this, "正在切换至稳定截屏兼容模式...", Toast.LENGTH_SHORT).show()
+            startFallbackImageStream()
+        }
+    }
+
     private fun startStreaming() {
         isFallbackMode = false
         watchdogJob?.cancel()
@@ -351,12 +388,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
-        binding.tvStreamStatus.text = "正在启动高清投屏..."
+        binding.tvStreamStatus.text = "正在启动高清硬件投屏..."
+        updateDiagBar("#FFB300", "模式: 极速硬件流(H264) | 正在建立连接...")
 
         val manager = scrcpyManager ?: return
         val surface = binding.surfaceView.holder.surface
         if (!surface.isValid) {
             binding.tvStreamStatus.text = "等待显示窗口就绪..."
+            updateDiagBar("#FFB300", "模式: 极速硬件流 | 等待显示画布就绪...")
             return
         }
 
@@ -371,7 +410,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             if (!receivedFirstH264Frame && isActive) {
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE
-                    binding.tvStreamStatus.text = "流式连接超时，正在切换至稳定截屏模式..."
+                    binding.tvStreamStatus.text = "硬件流建立超时，正在切换至稳定截屏模式..."
+                    updateDiagBar("#FFB300", "硬件流超时，已自动切至稳定截屏模式")
                     startFallbackImageStream()
                 }
             }
@@ -390,6 +430,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 runOnUiThread {
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.GONE
+                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | 画面正常输出中")
                 }
             },
             onError = { errMsg ->
@@ -397,6 +438,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE
                     binding.tvStreamStatus.text = errMsg
+                    updateDiagBar("#F44336", "硬件流异常: $errMsg")
                     startFallbackImageStream()
                 }
             }
@@ -426,33 +468,51 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.ivScreen.visibility = View.VISIBLE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
-        binding.tvStreamStatus.text = "正在以兼容模式获取屏幕画面..."
+        val manager = scrcpyManager
+        val methodName = manager?.getPreferredCaptureMethodName() ?: "自动探测"
+        binding.tvStreamStatus.text = "正在以稳定截屏模式获取屏幕画面..."
+        updateDiagBar("#FFB300", "模式: 稳定截屏($methodName) | 正在连接...")
 
         // 支持点击状态文字手动唤醒被控端并重试
         binding.tvStreamStatus.setOnClickListener {
             lifecycleScope.launch(Dispatchers.IO) {
-                scrcpyManager?.turnScreenOn()
+                manager?.turnScreenOn()
             }
-            Toast.makeText(this, "正在重新拉取画面...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "正在重新拉取画面并唤醒屏幕...", Toast.LENGTH_SHORT).show()
         }
 
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
-            val manager = scrcpyManager ?: return@launch
+            val mgr = scrcpyManager ?: return@launch
             val (cw, ch) = getContainerDimensions()
-            val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
+            val (targetW, targetH) = mgr.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
             withContext(Dispatchers.Main) {
                 adjustViewAspectRatio(targetW, targetH)
             }
 
             var isFirst = true
             var consecutiveFailures = 0
+            var frameCount = 0L
+            var lastFpsCalcTime = System.currentTimeMillis()
+            var currentFps = 0
 
             while (isActive) {
-                val frame = manager.captureFrame(targetW, targetH)
+                val frame = mgr.captureFrame(targetW, targetH)
                 if (frame != null) {
                     consecutiveFailures = 0
+                    frameCount++
+                    val now = System.currentTimeMillis()
+                    if (now - lastFpsCalcTime >= 1000) {
+                        currentFps = ((frameCount * 1000) / maxOf(1, now - lastFpsCalcTime)).toInt()
+                        frameCount = 0
+                        lastFpsCalcTime = now
+                    }
+
                     withContext(Dispatchers.Main) {
                         binding.ivScreen.setImageBitmap(frame)
+                        updateDiagBar(
+                            indicatorColor = "#4CAF50",
+                            text = "模式: 截屏(${mgr.getPreferredCaptureMethodName()}) | 帧率: ${currentFps} fps"
+                        )
                         if (isFirst) {
                             binding.pbLoading.visibility = View.GONE
                             binding.tvStreamStatus.visibility = View.GONE
@@ -461,17 +521,32 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                 } else {
                     consecutiveFailures++
-                    if (isFirst && consecutiveFailures in 2..6) {
-                        withContext(Dispatchers.Main) {
-                            binding.tvStreamStatus.visibility = View.VISIBLE
-                            val lastErr = manager.getLastCaptureError()
-                            val msg = if (lastErr.isNotBlank()) "正在获取画面: $lastErr" else "正在重试获取被控端画面 (请确保设备未锁定)..."
-                            binding.tvStreamStatus.text = msg
+                    val lastErr = mgr.getLastCaptureError()
+                    withContext(Dispatchers.Main) {
+                        val msg = if (lastErr.isNotBlank()) "正在获取画面: $lastErr" else "正在重试获取被控端画面 (请确保设备未锁定)..."
+                        binding.tvStreamStatus.visibility = View.VISIBLE
+                        binding.tvStreamStatus.text = msg
+                        updateDiagBar(
+                            indicatorColor = "#FFB300",
+                            text = "截屏重试中($consecutiveFailures): ${lastErr.take(24)}"
+                        )
+                    }
+
+                    // 遇到连续失败时主动点亮并解锁
+                    if (consecutiveFailures % 3 == 0) {
+                        mgr.turnScreenOn()
+                    }
+
+                    // 连续多次失败自动轮换截屏模式
+                    if (consecutiveFailures in 4..6) {
+                        val cur = mgr.getPreferredCaptureMethod()
+                        val next = when (cur) {
+                            1 -> 2
+                            2 -> 3
+                            3 -> 1
+                            else -> 3
                         }
-                        // 首次连续失败时，尝试主动唤醒被控端一次（防止被控端锁屏息屏）
-                        if (consecutiveFailures == 3) {
-                            manager.turnScreenOn()
-                        }
+                        mgr.setPreferredCaptureMethod(next)
                     }
                 }
                 delay(30)
