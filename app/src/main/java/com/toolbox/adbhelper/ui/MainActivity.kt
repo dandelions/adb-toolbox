@@ -88,6 +88,10 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
+        binding.btnMirrorSettings.setOnClickListener {
+            showScrcpyPresetDialog()
+        }
+
         binding.btnFeatureTerminal.setOnClickListener {
             checkConnectionAndRun {
                 startActivity(Intent(this, TerminalActivity::class.java))
@@ -303,6 +307,13 @@ class MainActivity : AppCompatActivity() {
         dialogBinding.switchFullscreen.isChecked = isFullscreen
         dialogBinding.switchScreenOff.isChecked = turnScreenOff
 
+        val isDeviceConnected = DeviceManager.adbClient != null
+        if (isDeviceConnected) {
+            dialogBinding.btnApplySettings.text = "保存并开始投屏"
+        } else {
+            dialogBinding.btnApplySettings.text = "保存投屏预设"
+        }
+
         dialogBinding.btnApplySettings.setOnClickListener {
             val newSize = when (dialogBinding.toggleResolution.checkedButtonId) {
                 R.id.btnResNative -> 0
@@ -339,7 +350,12 @@ class MainActivity : AppCompatActivity() {
 
             updateMirrorSubtitle()
             dialog.dismiss()
-            Toast.makeText(this, "投屏预设配置已保存！", Toast.LENGTH_SHORT).show()
+
+            if (isDeviceConnected) {
+                startActivity(Intent(this, ScrcpyActivity::class.java))
+            } else {
+                Toast.makeText(this, "投屏预设配置已保存！", Toast.LENGTH_SHORT).show()
+            }
         }
 
         dialog.show()

@@ -95,7 +95,8 @@
                             android:layout_weight="1"
                             android:text="原画"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectRes1080"
@@ -105,7 +106,8 @@
                             android:layout_weight="1"
                             android:text="1080P"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectRes720"
@@ -115,7 +117,8 @@
                             android:layout_weight="1"
                             android:text="720P"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectRes480"
@@ -125,7 +128,8 @@
                             android:layout_weight="1"
                             android:text="480P"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                     </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -154,7 +158,8 @@
                             android:layout_weight="1"
                             android:text="2M"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectBitrate4M"
@@ -164,7 +169,8 @@
                             android:layout_weight="1"
                             android:text="4M"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectBitrate8M"
@@ -174,7 +180,8 @@
                             android:layout_weight="1"
                             android:text="8M"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnConnectBitrate16M"
@@ -184,7 +191,8 @@
                             android:layout_weight="1"
                             android:text="16M"
                             android:textColor="@color/selector_toggle_text"
-                            app:strokeColor="@color/divider" />
+                            app:backgroundTint="@color/selector_toggle_bg"
+                            app:strokeColor="@color/selector_toggle_stroke" />
 
                     </com.google.android.material.button.MaterialButtonToggleGroup>
 

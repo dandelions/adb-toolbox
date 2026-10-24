@@ -44,7 +44,8 @@
                 android:layout_weight="1"
                 android:text="原画"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes1080"
@@ -54,7 +55,8 @@
                 android:layout_weight="1"
                 android:text="1080P"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes720"
@@ -64,7 +66,8 @@
                 android:layout_weight="1"
                 android:text="720P"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRes480"
@@ -74,7 +77,8 @@
                 android:layout_weight="1"
                 android:text="480P"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -103,7 +107,8 @@
                 android:layout_weight="1"
                 android:text="2M"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate4M"
@@ -113,7 +118,8 @@
                 android:layout_weight="1"
                 android:text="4M"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate8M"
@@ -123,7 +129,8 @@
                 android:layout_weight="1"
                 android:text="8M"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBitrate16M"
@@ -133,7 +140,8 @@
                 android:layout_weight="1"
                 android:text="16M"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -162,7 +170,8 @@
                 android:layout_weight="1"
                 android:text="底部"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavTop"
@@ -172,7 +181,8 @@
                 android:layout_weight="1"
                 android:text="顶部"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavLeft"
@@ -182,7 +192,8 @@
                 android:layout_weight="1"
                 android:text="左侧"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavRight"
@@ -192,7 +203,8 @@
                 android:layout_weight="1"
                 android:text="右侧"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnNavHide"
@@ -202,7 +214,8 @@
                 android:layout_weight="1"
                 android:text="隐藏"
                 android:textColor="@color/selector_toggle_text"
-                app:strokeColor="@color/divider" />
+                app:backgroundTint="@color/selector_toggle_bg"
+                app:strokeColor="@color/selector_toggle_stroke" />
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -228,7 +241,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="应用并生效" />
+            android:text="应用并生效"
+            android:textColor="@color/on_primary"
+            app:backgroundTint="@color/primary" />
 
     </LinearLayout>
 

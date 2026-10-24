@@ -91,15 +91,22 @@ class AdbStream(
         }
     }
 
+    fun isClosed(): Boolean = isClosed.get()
+
     fun read(): ByteArray? {
         if (isClosed.get() && receiveQueue.isEmpty()) return null
-        val data = receiveQueue.take()
-        if (data.isEmpty() && isClosed.get()) return null
-        return data
+        return try {
+            val data = receiveQueue.take()
+            if (data.isEmpty() && isClosed.get()) null else data
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            null
+        }
     }
 
     override fun close() {
         if (isClosed.compareAndSet(false, true)) {
+            receiveQueue.offer(ByteArray(0)) // 唤醒可能阻塞在 read() 的消费者
             connection.sendClose(localId, remoteId)
             connection.removeStream(localId)
         }

@@ -32,6 +32,8 @@ class ScrcpyManager(
     private var adbStream: AdbStream? = null
     private var mediaCodec: MediaCodec? = null
 
+    fun isStreamingNow(): Boolean = isStreaming.get()
+
     /**
      * 获取对端设备的真实物理分辨率 (例如 1080x2400)
      */
@@ -91,17 +93,17 @@ class ScrcpyManager(
         if (isStreaming.getAndSet(true)) return
 
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize)
-        val bitrate = config.bitRate
+        val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
 
         streamThread = Thread({
             try {
                 // 1. 初始化本地 H.264 硬件解码器
                 // 解码器输出到 Surface 时无需也不可设置 COLOR_FormatSurface (仅供编码器使用)
                 val format = MediaFormat.createVideoFormat("video/avc", targetW, targetH).apply {
-                    setInteger("max-input-size", maxOf(targetW * targetH, 256 * 1024))
-                    setInteger("frame-rate", config.maxFps)
+                    setInteger("max-input-size", maxOf(targetW * targetH, 1024 * 1024))
+                    setInteger("frame-rate", if (config.maxFps > 0) config.maxFps else 60)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        setInteger(MediaFormat.KEY_OPERATING_RATE, config.maxFps)
+                        setInteger(MediaFormat.KEY_OPERATING_RATE, if (config.maxFps > 0) config.maxFps else 60)
                         setInteger(MediaFormat.KEY_PRIORITY, 0) // 实时最高优先级
                     }
                 }
@@ -139,13 +141,25 @@ class ScrcpyManager(
 
                 // 4. 输入流读取并投递给 MediaCodec
                 val inputStream = activeStream.inputStream
-                feedH264ToCodec(inputStream, activeCodec)
+                val framesFed = feedH264ToCodec(inputStream, activeCodec)
+
+                if (isStreaming.get() && framesFed == 0) {
+                    onError("对端未能输出有效 H.264 视频流，正切换为兼容模式...")
+                }
 
             } catch (e: Exception) {
-                Log.e(TAG, "H264 stream failed", e)
-                if (isStreaming.get()) {
-                    val errorDetail = e.message ?: e.localizedMessage ?: e.javaClass.simpleName
-                    onError("流式投屏启动异常: $errorDetail，正切换为兼容模式...")
+                // 如果是主动停止/打断，或者在已停止状态下捕获 InterruptedException，忽略并优雅退出
+                val isInterrupted = e is InterruptedException || e.cause is InterruptedException || !isStreaming.get()
+                if (isInterrupted) {
+                    Log.i(TAG, "Stream stopped or interrupted normally")
+                } else {
+                    Log.e(TAG, "H264 stream failed", e)
+                    if (isStreaming.get()) {
+                        val errorDetail = e.message?.takeIf { it.isNotBlank() }
+                            ?: e.localizedMessage?.takeIf { it.isNotBlank() }
+                            ?: e.javaClass.simpleName
+                        onError("流式投屏启动异常: $errorDetail，正切换为兼容模式...")
+                    }
                 }
             } finally {
                 stopStream()
@@ -156,12 +170,26 @@ class ScrcpyManager(
     /**
      * 将 H.264 字节流按 NAL 单元分包送入 MediaCodec
      */
-    private fun feedH264ToCodec(input: InputStream, codec: MediaCodec) {
-        val buffer = ByteArray(64 * 1024)
+    private fun feedH264ToCodec(input: InputStream, codec: MediaCodec): Int {
+        var buffer = ByteArray(1024 * 1024)
         var bufferLen = 0
+        var framesFed = 0
 
         while (isStreaming.get()) {
-            val bytesRead = input.read(buffer, bufferLen, buffer.size - bufferLen)
+            if (buffer.size - bufferLen < 64 * 1024) {
+                if (buffer.size < 4 * 1024 * 1024) {
+                    buffer = buffer.copyOf(buffer.size * 2)
+                }
+            }
+
+            val bytesRead = try {
+                input.read(buffer, bufferLen, buffer.size - bufferLen)
+            } catch (e: Exception) {
+                if (isStreaming.get()) {
+                    Log.w(TAG, "Input stream read error: ${e.message}")
+                }
+                break
+            }
             if (bytesRead < 0) break
             bufferLen += bytesRead
 
@@ -169,7 +197,10 @@ class ScrcpyManager(
             while (pos < bufferLen - 4) {
                 // 查找下一个 NAL 单元起始码 00 00 00 01 或 00 00 01
                 val nalStart = findNalStart(buffer, pos, bufferLen)
-                if (nalStart < 0) break
+                if (nalStart < 0) {
+                    pos = maxOf(0, bufferLen - 3)
+                    break
+                }
 
                 val nextNal = findNalStart(buffer, nalStart + 3, bufferLen)
                 if (nextNal < 0) {
@@ -180,6 +211,7 @@ class ScrcpyManager(
 
                 val nalSize = nextNal - nalStart
                 feedOneNal(codec, buffer, nalStart, nalSize)
+                framesFed++
                 pos = nextNal
             }
 
@@ -188,6 +220,7 @@ class ScrcpyManager(
                 bufferLen -= pos
             }
         }
+        return framesFed
     }
 
     private fun findNalStart(data: ByteArray, start: Int, end: Int): Int {

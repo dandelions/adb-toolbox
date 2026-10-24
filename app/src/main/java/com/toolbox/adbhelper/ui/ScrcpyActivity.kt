@@ -86,7 +86,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
 
             withContext(Dispatchers.Main) {
-                if (surfaceCreated) {
+                if (surfaceCreated && scrcpyManager?.isStreamingNow() != true) {
                     startStreaming()
                 }
             }
@@ -268,7 +268,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         surfaceCreated = true
-        startStreaming()
+        if (deviceWidth > 0 && deviceHeight > 0 && scrcpyManager?.isStreamingNow() != true) {
+            startStreaming()
+        }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
