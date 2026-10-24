@@ -150,6 +150,9 @@ class AdbConnection(
                 val stream = streams[localId]
                 if (stream != null) {
                     stream.onCloseReceived()
+                    synchronized(stream) {
+                        (stream as java.lang.Object).notifyAll()
+                    }
                     streams.remove(localId)
                 }
             }
@@ -190,13 +193,18 @@ class AdbConnection(
         // 等待 OKAY 响应获取 remoteId
         synchronized(stream) {
             val start = System.currentTimeMillis()
-            while (stream.remoteId == 0 && !isClosed.get()) {
+            while (stream.remoteId == 0 && !stream.isClosed() && !isClosed.get()) {
                 val elapsed = System.currentTimeMillis() - start
                 if (elapsed >= timeoutMs) {
                     streams.remove(localId)
                     throw IOException("Timeout opening stream: $destination")
                 }
-                (stream as java.lang.Object).wait(500)
+                val waitTime = minOf(200L, maxOf(10L, timeoutMs - elapsed))
+                (stream as java.lang.Object).wait(waitTime)
+            }
+            if (stream.isClosed()) {
+                streams.remove(localId)
+                throw IOException("Stream closed by remote peer: $destination")
             }
         }
         return stream

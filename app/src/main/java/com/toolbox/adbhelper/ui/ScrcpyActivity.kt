@@ -289,22 +289,24 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.surfaceView.visibility = View.VISIBLE
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
-        binding.tvStreamStatus.visibility = View.GONE
+        binding.tvStreamStatus.visibility = View.VISIBLE
+        binding.tvStreamStatus.text = "正在启动高清投屏..."
 
         val manager = scrcpyManager ?: return
         val surface = binding.surfaceView.holder.surface
         if (!surface.isValid) {
+            binding.tvStreamStatus.text = "等待显示窗口就绪..."
             return
         }
 
         var receivedFirstH264Frame = false
         watchdogJob?.cancel()
         watchdogJob = lifecycleScope.launch {
-            delay(2500)
+            delay(3500)
             if (!receivedFirstH264Frame && isActive) {
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE
-                    binding.tvStreamStatus.text = "对端未输出视频流，已切换为兼容模式"
+                    binding.tvStreamStatus.text = "流式连接超时，正在切换至稳定截屏模式..."
                     startFallbackImageStream()
                 }
             }
@@ -353,32 +355,37 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.surfaceView.visibility = View.GONE
         binding.ivScreen.visibility = View.VISIBLE
         binding.pbLoading.visibility = View.VISIBLE
+        binding.tvStreamStatus.visibility = View.VISIBLE
+        binding.tvStreamStatus.text = "正在获取屏幕画面..."
 
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
             val manager = scrcpyManager ?: return@launch
             val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize)
             var isFirst = true
+            var consecutiveFailures = 0
 
             while (isActive) {
                 val frame = manager.captureFrame(targetW, targetH)
                 if (frame != null) {
+                    consecutiveFailures = 0
                     withContext(Dispatchers.Main) {
+                        binding.ivScreen.setImageBitmap(frame)
                         if (isFirst) {
                             binding.pbLoading.visibility = View.GONE
                             binding.tvStreamStatus.visibility = View.GONE
                             isFirst = false
                         }
-                        binding.ivScreen.setImageBitmap(frame)
                     }
                 } else {
-                    withContext(Dispatchers.Main) {
-                        if (isFirst) {
+                    consecutiveFailures++
+                    if (isFirst && consecutiveFailures > 3) {
+                        withContext(Dispatchers.Main) {
                             binding.tvStreamStatus.visibility = View.VISIBLE
-                            binding.tvStreamStatus.text = "正在获取屏幕画面..."
+                            binding.tvStreamStatus.text = "正在重试获取被控端画面 (请确保设备未处于熄屏锁定)..."
                         }
                     }
                 }
-                delay(35)
+                delay(30)
             }
         }
     }

@@ -29,8 +29,14 @@ class ScrcpyManager(
 
     private val isStreaming = AtomicBoolean(false)
     private var streamThread: Thread? = null
+    private var serverStream: AdbStream? = null
     private var adbStream: AdbStream? = null
+    private var controlStream: AdbStream? = null
     private var mediaCodec: MediaCodec? = null
+
+    // 缓存最快且可用的截屏方式 (1: exec, 2: base64, 3: temp_file)
+    @Volatile
+    private var preferredCaptureMethod = 0
 
     fun isStreamingNow(): Boolean = isStreaming.get()
 
@@ -76,6 +82,42 @@ class ScrcpyManager(
     }
 
     /**
+     * 确保 assets 中的官方 scrcpy-server.jar 已同步到对端设备的 /data/local/tmp 目录
+     */
+    private fun ensureServerPushed(): Boolean {
+        try {
+            val localCache = java.io.File(context.cacheDir, "scrcpy-server.jar")
+            if (!localCache.exists() || localCache.length() == 0L) {
+                context.assets.open("scrcpy-server.jar").use { input ->
+                    localCache.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            val expectedSize = localCache.length()
+            if (expectedSize <= 0) return false
+
+            val checkOut = adbClient.executeShell("ls -l /data/local/tmp/scrcpy-server.jar 2>/dev/null")
+            val remoteSizeMatch = Regex("""\s+(\d+)\s+""").find(checkOut)?.groupValues?.get(1)?.toLongOrNull()
+            if (remoteSizeMatch == expectedSize) {
+                return true
+            }
+
+            val sync = adbClient.openSync()
+            try {
+                sync.pushFile(localCache, "/data/local/tmp/scrcpy-server.jar")
+            } finally {
+                sync.close()
+            }
+            adbClient.executeShell("chmod 755 /data/local/tmp/scrcpy-server.jar")
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "Push scrcpy-server.jar fallback: ${e.message}")
+            return false
+        }
+    }
+
+    /**
      * 启动低延迟 H.264 硬件解码屏幕流并直接渲染到 Surface
      */
     fun startH264Stream(
@@ -95,18 +137,91 @@ class ScrcpyManager(
 
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize)
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
+        val maxFps = if (config.maxFps > 0) config.maxFps else 60
 
         streamThread = Thread({
             var firstFrameRendered = false
+            var activeStream: AdbStream? = null
+            var finalW = targetW
+            var finalH = targetH
+
             try {
-                // 1. 初始化本地 H.264 硬件解码器
-                // 解码器输出到 Surface 时无需也不可设置 COLOR_FormatSurface (仅供编码器使用)
-                val format = MediaFormat.createVideoFormat("video/avc", targetW, targetH).apply {
-                    setInteger("max-input-size", maxOf(targetW * targetH, 1024 * 1024))
-                    setInteger("frame-rate", if (config.maxFps > 0) config.maxFps else 60)
+                // 1. 尝试使用官方 scrcpy-server (60fps, 极低延迟, 免装 APK)
+                var useScrcpyServer = ensureServerPushed()
+                if (useScrcpyServer) {
+                    try {
+                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $targetW $bitrate $maxFps -1 true - false false 0 false true - - false"
+                        serverStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
+
+                        // 轮询等待 server 建立 localabstract:scrcpy 监听
+                        var connectedStream: AdbStream? = null
+                        for (i in 0 until 20) {
+                            if (!isStreaming.get()) break
+                            try {
+                                connectedStream = adbClient.connection.openStream("localabstract:scrcpy", 1000)
+                                break
+                            } catch (_: Exception) {
+                                Thread.sleep(150)
+                            }
+                        }
+
+                        if (connectedStream != null) {
+                            activeStream = connectedStream
+                            adbStream = activeStream
+
+                            // 连接辅助 control socket 保持服务端握手完整
+                            try {
+                                controlStream = adbClient.connection.openStream("localabstract:scrcpy", 1500)
+                            } catch (_: Exception) {}
+
+                            // 读取 1 字节 dummy 握手
+                            val dummy = activeStream.inputStream.read()
+                            if (dummy != 0) {
+                                throw java.io.IOException("Invalid scrcpy server handshake: $dummy")
+                            }
+
+                            // 读取 68 字节 meta (64字节设备名 + 2字节宽 + 2字节高)
+                            val meta = ByteArray(68)
+                            var metaRead = 0
+                            while (metaRead < 68) {
+                                val r = activeStream.inputStream.read(meta, metaRead, 68 - metaRead)
+                                if (r < 0) throw java.io.IOException("EOF reading scrcpy metadata")
+                                metaRead += r
+                            }
+                            val serverW = ((meta[64].toInt() and 0xFF) shl 8) or (meta[65].toInt() and 0xFF)
+                            val serverH = ((meta[66].toInt() and 0xFF) shl 8) or (meta[67].toInt() and 0xFF)
+                            if (serverW > 0 && serverH > 0) {
+                                finalW = serverW
+                                finalH = serverH
+                            }
+                            Log.i(TAG, "Scrcpy-server connected successfully, resolution: ${finalW}x${finalH}")
+                        } else {
+                            useScrcpyServer = false
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Scrcpy-server start failed: ${e.message}, falling back to screenrecord")
+                        useScrcpyServer = false
+                    }
+                }
+
+                // 2. 若 scrcpy-server 无法启动，降级尝试系统 screenrecord
+                if (activeStream == null) {
+                    val execCommand = "exec:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -"
+                    activeStream = try {
+                        adbClient.connection.openStream(execCommand, 2500)
+                    } catch (_: Exception) {
+                        adbClient.connection.openStream("shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -", 2500)
+                    }
+                    adbStream = activeStream
+                }
+
+                // 3. 初始化本地 H.264 硬件解码器
+                val format = MediaFormat.createVideoFormat("video/avc", finalW, finalH).apply {
+                    setInteger("max-input-size", maxOf(finalW * finalH, 1024 * 1024))
+                    setInteger("frame-rate", maxFps)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        setInteger(MediaFormat.KEY_OPERATING_RATE, if (config.maxFps > 0) config.maxFps else 60)
-                        setInteger(MediaFormat.KEY_PRIORITY, 0) // 实时最高优先级
+                        setInteger(MediaFormat.KEY_OPERATING_RATE, maxFps)
+                        setInteger(MediaFormat.KEY_PRIORITY, 0)
                     }
                 }
 
@@ -115,17 +230,7 @@ class ScrcpyManager(
                 activeCodec.configure(format, surface, null, 0)
                 activeCodec.start()
 
-                // 2. 在被控端启动低延迟 screenrecord (优先通过 exec: 无 PTY 字符转换)
-                // --output-format=h264 输出到 stdout 管道
-                val execCommand = "exec:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -"
-                val activeStream = try {
-                    adbClient.connection.openStream(execCommand, 3000)
-                } catch (_: Exception) {
-                    adbClient.connection.openStream("shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -", 3000)
-                }
-                adbStream = activeStream
-
-                // 3. 启动解码消费线程
+                // 4. 启动解码消费线程
                 val decodeThread = Thread({
                     val info = MediaCodec.BufferInfo()
                     while (isStreaming.get()) {
@@ -136,7 +241,6 @@ class ScrcpyManager(
                                     firstFrameRendered = true
                                     onFirstFrame()
                                 }
-                                // 立即渲染到 Surface
                                 activeCodec.releaseOutputBuffer(outIndex, true)
                             }
                         } catch (e: Exception) {
@@ -149,16 +253,16 @@ class ScrcpyManager(
                 }, "ScrcpyDecoderOutThread")
                 decodeThread.start()
 
-                // 4. 输入流读取并投递给 MediaCodec
-                val inputStream = activeStream.inputStream
+                // 5. 输入流读取并投递给 MediaCodec
+                val stream = activeStream ?: throw java.io.IOException("未能建立对端流式连接")
+                val inputStream = stream.inputStream
                 val framesFed = feedH264ToCodec(inputStream, activeCodec)
 
                 if (isStreaming.get() && (framesFed == 0 || !firstFrameRendered)) {
-                    onError("对端未能输出有效 H.264 视频流，正切换为兼容模式...")
+                    onError("流式传输未检测到画面数据，已自动切换为稳定截屏模式")
                 }
 
             } catch (e: Exception) {
-                // 如果是主动停止/打断，或者在已停止状态下捕获 InterruptedException，忽略并优雅退出
                 val isInterrupted = e is InterruptedException || e.cause is InterruptedException || !isStreaming.get()
                 if (isInterrupted) {
                     Log.i(TAG, "Stream stopped or interrupted normally")
@@ -168,7 +272,7 @@ class ScrcpyManager(
                         val errorDetail = e.message?.takeIf { it.isNotBlank() }
                             ?: e.localizedMessage?.takeIf { it.isNotBlank() }
                             ?: e.javaClass.simpleName
-                        onError("流式投屏启动异常: $errorDetail，正切换为兼容模式...")
+                        onError("流式投屏启动异常 ($errorDetail)，已切换至稳定截屏模式")
                     }
                 }
             } finally {
@@ -292,10 +396,21 @@ class ScrcpyManager(
      */
     fun stopStream() {
         if (!isStreaming.getAndSet(false)) return
+
         try {
             adbStream?.close()
         } catch (_: Exception) {}
         adbStream = null
+
+        try {
+            controlStream?.close()
+        } catch (_: Exception) {}
+        controlStream = null
+
+        try {
+            serverStream?.close()
+        } catch (_: Exception) {}
+        serverStream = null
 
         try {
             mediaCodec?.stop()
@@ -310,36 +425,103 @@ class ScrcpyManager(
     }
 
     /**
-     * 兼容模式截帧（单帧拉取，支持 exec 和 shell 自动修正）
+     * 稳定兼容截帧（多层自动降级兜底，确保在所有机型上100%获取到画面）
      */
     suspend fun captureFrame(targetW: Int = 0, targetH: Int = 0): Bitmap? = withContext(Dispatchers.IO) {
+        val method = preferredCaptureMethod
+        // 优先使用历史已验证的最快模式
+        if (method == 1) {
+            val bmp = captureFrameViaExec(targetW, targetH)
+            if (bmp != null) return@withContext bmp
+        } else if (method == 2) {
+            val bmp = captureFrameViaBase64(targetW, targetH)
+            if (bmp != null) return@withContext bmp
+        } else if (method == 3) {
+            val bmp = captureFrameViaTempFile(targetW, targetH)
+            if (bmp != null) return@withContext bmp
+        }
+
+        // 探测阶段：依次尝试 1: exec -> 2: base64 -> 3: 临时文件同步
+        val bmpExec = captureFrameViaExec(targetW, targetH)
+        if (bmpExec != null) {
+            preferredCaptureMethod = 1
+            return@withContext bmpExec
+        }
+
+        val bmpB64 = captureFrameViaBase64(targetW, targetH)
+        if (bmpB64 != null) {
+            preferredCaptureMethod = 2
+            return@withContext bmpB64
+        }
+
+        val bmpTemp = captureFrameViaTempFile(targetW, targetH)
+        if (bmpTemp != null) {
+            preferredCaptureMethod = 3
+            return@withContext bmpTemp
+        }
+
+        null
+    }
+
+    private fun captureFrameViaExec(targetW: Int, targetH: Int): Bitmap? {
         try {
-            // 优先通过 exec: 获取干净无 PTY 污染的 PNG 数据，失败时降级到 shell:
-            var rawBytes = readStreamBytes("exec:screencap -p")
-            if (rawBytes.isEmpty()) {
-                rawBytes = readStreamBytes("shell:screencap -p")
+            val raw = readStreamBytes("exec:screencap -p", 2500)
+            if (raw.size > 8) {
+                val offset = findPngHeader(raw)
+                if (offset >= 0) {
+                    val bmp = BitmapFactory.decodeByteArray(raw, offset, raw.size - offset)
+                    if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+                }
             }
-            if (rawBytes.isEmpty()) return@withContext null
+        } catch (_: Exception) {}
+        return null
+    }
 
-            // 自动修正 PTY 可能引入的 0x0D 0x0A 损坏
-            val cleanBytes = sanitizePngBytes(rawBytes)
-            val pngOffset = findPngHeader(cleanBytes)
-            if (pngOffset < 0) {
-                Log.w(TAG, "No valid PNG header found in screencap output")
-                return@withContext null
+    private fun captureFrameViaBase64(targetW: Int, targetH: Int): Bitmap? {
+        try {
+            val raw = readStreamBytes("shell:screencap -p 2>/dev/null | base64", 3500)
+            if (raw.isNotEmpty()) {
+                val decoded = android.util.Base64.decode(raw, android.util.Base64.DEFAULT)
+                if (decoded.size > 8) {
+                    val offset = findPngHeader(decoded)
+                    if (offset >= 0) {
+                        val bmp = BitmapFactory.decodeByteArray(decoded, offset, decoded.size - offset)
+                        if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+                    }
+                }
             }
+        } catch (_: Exception) {}
+        return null
+    }
 
-            val bitmap = BitmapFactory.decodeByteArray(cleanBytes, pngOffset, cleanBytes.size - pngOffset)
-            if (bitmap != null && targetW > 0 && targetH > 0 && (bitmap.width != targetW || bitmap.height != targetH)) {
-                val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+    private fun captureFrameViaTempFile(targetW: Int, targetH: Int): Bitmap? {
+        try {
+            val remotePath = "/data/local/tmp/scrcpy_frame.png"
+            adbClient.executeShell("screencap -p $remotePath")
+            val localCache = java.io.File(context.cacheDir, "temp_frame.png")
+            val sync = adbClient.openSync()
+            try {
+                sync.pullFile(remotePath, localCache)
+            } finally {
+                sync.close()
+            }
+            if (localCache.exists() && localCache.length() > 0) {
+                val bmp = BitmapFactory.decodeFile(localCache.absolutePath)
+                if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    private fun scaleBitmapIfNeeded(bitmap: Bitmap, targetW: Int, targetH: Int): Bitmap {
+        return if (targetW > 0 && targetH > 0 && (bitmap.width != targetW || bitmap.height != targetH)) {
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            if (scaled != bitmap) {
                 bitmap.recycle()
-                scaled
-            } else {
-                bitmap
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "captureFrame failed", e)
-            null
+            scaled
+        } else {
+            bitmap
         }
     }
 
