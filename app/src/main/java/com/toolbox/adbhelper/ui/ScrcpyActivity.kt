@@ -51,6 +51,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val PREFS_NAME = "scrcpy_prefs"
         private const val KEY_MAX_SIZE = "scrcpy_max_size"
         private const val KEY_BITRATE = "scrcpy_bitrate"
+        private const val KEY_MAX_FPS = "scrcpy_max_fps"
         private const val KEY_NAV_POS = "scrcpy_nav_pos"
         private const val KEY_FULLSCREEN = "scrcpy_fullscreen"
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
@@ -102,7 +103,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun loadConfig() {
         config.maxSize = prefs.getInt(KEY_MAX_SIZE, -1)
-        config.bitRate = prefs.getInt(KEY_BITRATE, 4_000_000)
+        config.bitRate = prefs.getInt(KEY_BITRATE, 8_000_000)
+        config.maxFps = prefs.getInt(KEY_MAX_FPS, 120)
         val navPosName = prefs.getString(KEY_NAV_POS, NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         config.navPosition = try {
             NavPosition.valueOf(navPosName)
@@ -117,6 +119,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         prefs.edit()
             .putInt(KEY_MAX_SIZE, config.maxSize)
             .putInt(KEY_BITRATE, config.bitRate)
+            .putInt(KEY_MAX_FPS, config.maxFps)
             .putString(KEY_NAV_POS, config.navPosition.name)
             .putBoolean(KEY_FULLSCREEN, config.isFullscreen)
             .putBoolean(KEY_SCREEN_OFF, config.turnScreenOff)
@@ -320,12 +323,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceCreated = false
-        // 关键隔离：只有硬件流模式才停止解码，绝不误杀正在运行的截屏兼容流
-        if (!isFallbackMode) {
-            watchdogJob?.cancel()
-            watchdogJob = null
-            scrcpyManager?.stopStream()
-        }
+        // 关键修复：绝不在 surfaceDestroyed 中 stopStream()！
+        // 动态等比适配、进入全屏、分屏调整均会触发 Surface 重建。
+        // 流生命周期交由 Activity onStop/onDestroy 管理，杜绝几秒后误杀流卡死！
     }
 
     private var watchdogJob: Job? = null
@@ -443,7 +443,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.GONE
-                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} 60fps")
+                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} ${config.maxFps}fps")
                 }
             },
             onError = { errMsg ->
@@ -580,6 +580,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         var selectedSize = config.maxSize
         var selectedBitrate = config.bitRate
+        var selectedFps = config.maxFps
         var selectedNavPos = config.navPosition
 
         // 1. 初始化分辨率下拉
@@ -600,7 +601,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             selectedBitrate = ScrcpyPresets.BITRATE_OPTIONS[position].value
         }
 
-        // 3. 初始化导航栏位置下拉
+        // 3. 初始化帧率下拉
+        val fpsLabels = ScrcpyPresets.FPS_OPTIONS.map { it.label }
+        val fpsAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, fpsLabels)
+        dialogBinding.actvFps.setAdapter(fpsAdapter)
+        dialogBinding.actvFps.setText(ScrcpyPresets.getFpsLabel(config.maxFps), false)
+        dialogBinding.actvFps.setOnItemClickListener { _, _, position, _ ->
+            selectedFps = ScrcpyPresets.FPS_OPTIONS[position].value
+        }
+
+        // 4. 初始化导航栏位置下拉
         val navLabels = ScrcpyPresets.NAV_POSITION_OPTIONS.map { it.label }
         val navAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, navLabels)
         dialogBinding.actvNavPosition.setAdapter(navAdapter)
@@ -609,7 +619,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value
         }
 
-        // 4. 初始化开关
+        // 5. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
 
@@ -617,6 +627,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         dialogBinding.btnApplySettings.setOnClickListener {
             config.maxSize = selectedSize
             config.bitRate = selectedBitrate
+            config.maxFps = selectedFps
             config.navPosition = selectedNavPos
 
             val oldFullscreen = config.isFullscreen

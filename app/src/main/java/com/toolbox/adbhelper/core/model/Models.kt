@@ -70,8 +70,8 @@ enum class NavPosition {
 
 data class ScrcpyConfig(
     var maxSize: Int = -1, // -1 为自动适配本机屏幕，0 为原画，常见 1920 (1080P), 1280 (720P), 854 (480P)
-    var bitRate: Int = 4_000_000, // 码率 (2M, 4M, 8M, 16M)
-    var maxFps: Int = 60,
+    var bitRate: Int = 8_000_000, // 码率 (2M, 4M, 8M, 16M)，默认 8M 确保高清细腻
+    var maxFps: Int = 120, // 默认 120 帧高刷，丝滑流畅
     var turnScreenOff: Boolean = false, // 熄屏运行
     var stayAwake: Boolean = true,
     var navPosition: NavPosition = NavPosition.BOTTOM,
@@ -99,6 +99,13 @@ object ScrcpyPresets {
         ScrcpyOption("16 Mbps (超清画质，极高码率)", 16_000_000)
     )
 
+    val FPS_OPTIONS = listOf(
+        ScrcpyOption("120 FPS (极速高刷，极致丝滑)", 120),
+        ScrcpyOption("90 FPS (高刷流畅，省电推荐)", 90),
+        ScrcpyOption("60 FPS (标准流畅，广泛兼容)", 60),
+        ScrcpyOption("30 FPS (省电低功耗)", 30)
+    )
+
     val NAV_POSITION_OPTIONS = listOf(
         ScrcpyOption("底部停靠 (标准推荐)", NavPosition.BOTTOM),
         ScrcpyOption("顶部停靠", NavPosition.TOP),
@@ -115,6 +122,10 @@ object ScrcpyPresets {
     fun getBitrateLabel(bitrate: Int): String {
         return BITRATE_OPTIONS.find { it.value == bitrate }?.label
             ?: "${bitrate / 1_000_000} Mbps"
+    }
+
+    fun getFpsLabel(fps: Int): String {
+        return FPS_OPTIONS.find { it.value == fps }?.label ?: "${fps} FPS"
     }
 
     fun getNavPositionLabel(position: NavPosition): String {

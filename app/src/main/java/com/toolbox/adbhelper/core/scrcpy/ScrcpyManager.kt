@@ -265,13 +265,18 @@ class ScrcpyManager(
                     adbStream = activeStream
                 }
 
-                // 3. 初始化本地 H.264 硬件解码器
+                // 3. 初始化本地 H.264 硬件解码器 (低延迟极速模式)
                 val format = MediaFormat.createVideoFormat("video/avc", finalW, finalH).apply {
                     setInteger("max-input-size", maxOf(finalW * finalH, 1024 * 1024))
                     setInteger("frame-rate", maxFps)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        setInteger(MediaFormat.KEY_OPERATING_RATE, maxFps)
+                        setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
                         setInteger(MediaFormat.KEY_PRIORITY, 0)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                        } catch (_: Exception) {}
                     }
                 }
 
@@ -280,24 +285,32 @@ class ScrcpyManager(
                 activeCodec.configure(format, surface, null, 0)
                 activeCodec.start()
 
-                // 4. 启动解码消费线程
+                // 4. 启动解码消费线程 (鲁棒性容错，绝不因单帧异常退圈导致卡死)
                 val decodeThread = Thread({
                     val info = MediaCodec.BufferInfo()
                     while (isStreaming.get()) {
                         try {
                             val outIndex = activeCodec.dequeueOutputBuffer(info, 10000)
-                            if (outIndex >= 0) {
-                                if (!firstFrameRendered) {
-                                    firstFrameRendered = true
-                                    onFirstFrame(finalW, finalH)
+                            when {
+                                outIndex >= 0 -> {
+                                    if (!firstFrameRendered) {
+                                        firstFrameRendered = true
+                                        onFirstFrame(finalW, finalH)
+                                    }
+                                    activeCodec.releaseOutputBuffer(outIndex, true)
                                 }
-                                activeCodec.releaseOutputBuffer(outIndex, true)
+                                outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                                    Log.i(TAG, "Decoder output format changed: ${activeCodec.outputFormat}")
+                                }
+                                outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                                    // 正常等待数据
+                                }
                             }
                         } catch (e: Exception) {
                             if (isStreaming.get()) {
-                                Log.w(TAG, "Output buffer dequeue error: ${e.message}")
+                                Log.w(TAG, "Transient output buffer dequeue error: ${e.message}")
+                                try { Thread.sleep(10) } catch (_: Exception) {}
                             }
-                            break
                         }
                     }
                 }, "ScrcpyDecoderOutThread")
@@ -400,7 +413,11 @@ class ScrcpyManager(
     private fun feedOneNal(codec: MediaCodec, data: ByteArray, offset: Int, size: Int) {
         if (size <= 4) return
         try {
-            val inIndex = codec.dequeueInputBuffer(10000)
+            var inIndex = codec.dequeueInputBuffer(10000)
+            if (inIndex < 0) {
+                // 解码器忙时重试一次，避免高刷时轻微抖动丢弃关键数据
+                inIndex = codec.dequeueInputBuffer(20000)
+            }
             if (inIndex >= 0) {
                 val inBuffer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     codec.getInputBuffer(inIndex)
@@ -428,13 +445,16 @@ class ScrcpyManager(
                     data[nalHeaderPos].toInt() and 0x1F
                 } else 0
 
+                val isConfig = nalType == 7 || nalType == 8
                 val flags = when (nalType) {
                     7, 8 -> MediaCodec.BUFFER_FLAG_CODEC_CONFIG // SPS, PPS 参数集配置
                     5 -> MediaCodec.BUFFER_FLAG_KEY_FRAME // IDR 关键帧
                     else -> 0
                 }
 
-                codec.queueInputBuffer(inIndex, 0, size, System.nanoTime() / 1000, flags)
+                // SPS/PPS 配置包 pts 必须为 0，视频帧单调递增纳秒时间戳
+                val pts = if (isConfig) 0L else (System.nanoTime() / 1000L)
+                codec.queueInputBuffer(inIndex, 0, size, pts, flags)
             }
         } catch (e: Exception) {
             Log.w(TAG, "feedOneNal error: ${e.message}")
