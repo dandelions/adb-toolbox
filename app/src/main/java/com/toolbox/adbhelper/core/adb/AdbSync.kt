@@ -84,7 +84,7 @@ class AdbSync(private val stream: AdbStream) {
         }
     }
 
-    fun pullFile(remotePath: String, localFile: File, progress: ((Float) -> Unit)? = null) {
+    fun pullFile(remotePath: String, outputStream: OutputStream, progress: ((Float) -> Unit)? = null) {
         val pathBytes = remotePath.toByteArray(Charsets.UTF_8)
         val req = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
         req.put(ID_RECV)
@@ -92,21 +92,26 @@ class AdbSync(private val stream: AdbStream) {
         req.put(pathBytes)
         stream.write(req.array())
 
-        localFile.outputStream().use { fos ->
-            while (true) {
-                val header = readExact(8)
-                val cmd = String(header, 0, 4, Charsets.US_ASCII)
-                val len = ByteBuffer.wrap(header, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-                if (cmd == "DATA") {
-                    val data = readExact(len)
-                    fos.write(data)
-                } else if (cmd == "DONE") {
-                    break
-                } else {
-                    val msg = if (len > 0) String(readExact(len), Charsets.UTF_8) else "Pull failed"
-                    throw java.io.IOException("Pull error: $msg")
-                }
+        while (true) {
+            val header = readExact(8)
+            val cmd = String(header, 0, 4, Charsets.US_ASCII)
+            val len = ByteBuffer.wrap(header, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+            if (cmd == "DATA") {
+                val data = readExact(len)
+                outputStream.write(data)
+            } else if (cmd == "DONE") {
+                break
+            } else {
+                val msg = if (len > 0) String(readExact(len), Charsets.UTF_8) else "Pull failed"
+                throw java.io.IOException("Pull error: $msg")
             }
+        }
+        outputStream.flush()
+    }
+
+    fun pullFile(remotePath: String, localFile: File, progress: ((Float) -> Unit)? = null) {
+        localFile.outputStream().use { fos ->
+            pullFile(remotePath, fos, progress)
         }
     }
 

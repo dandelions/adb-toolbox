@@ -25,6 +25,19 @@ class AdbClient(val connection: AdbConnection) {
         return baos.toString(Charsets.UTF_8.name())
     }
 
+    fun executeShellLines(command: String, timeoutMs: Long = 60000, onLine: (String) -> Unit) {
+        val stream = connection.openStream("shell:$command", timeoutMs)
+        try {
+            val reader = stream.inputStream.bufferedReader(Charsets.UTF_8)
+            while (true) {
+                val line = reader.readLine() ?: break
+                onLine(line)
+            }
+        } finally {
+            stream.close()
+        }
+    }
+
     fun openInteractiveShell(): AdbStream {
         return connection.openStream("shell:")
     }

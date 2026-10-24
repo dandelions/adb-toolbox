@@ -38,7 +38,7 @@ data class DeviceInfo(
 
 data class AppItem(
     val packageName: String,
-    val appName: String,
+    var appName: String,
     val versionName: String = "",
     val versionCode: Long = 0,
     val isSystem: Boolean = false,

@@ -124,21 +124,27 @@ class FileManagerActivity : AppCompatActivity() {
 
     private fun downloadFile(item: FileItem) {
         val client = DeviceManager.adbClient ?: return
-        Toast.makeText(this, "正在下载...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "正在下载到本机下载目录...", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch(Dispatchers.IO) {
+            var sync: com.toolbox.adbhelper.core.adb.AdbSync? = null
             try {
-                val destFile = File(getExternalFilesDir(null), item.name)
-                val sync = client.openSync()
-                sync.pullFile(item.path, destFile)
-                sync.close()
+                sync = client.openSync()
+                val savedLocation = com.toolbox.adbhelper.core.utils.DownloadHelper.downloadToPublicDownloads(
+                    applicationContext,
+                    sync,
+                    item.path,
+                    item.name
+                )
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@FileManagerActivity, "下载完成，保存在:\n${destFile.absolutePath}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@FileManagerActivity, "下载完成，已保存至本机下载目录:\n$savedLocation", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+            } finally {
+                sync?.close()
             }
         }
     }

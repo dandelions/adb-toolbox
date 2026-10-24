@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
+import com.toolbox.adbhelper.core.app.AppIconManager
 import com.toolbox.adbhelper.core.model.AppItem
 import com.toolbox.adbhelper.databinding.ActivityAppManagerBinding
 import com.toolbox.adbhelper.databinding.ItemAppBinding
@@ -81,6 +82,20 @@ class AppManagerActivity : AppCompatActivity() {
                     allApps.addAll(list)
                     filterApps(binding.etSearch.text?.toString() ?: "")
                     binding.swipeRefresh.isRefreshing = false
+                }
+
+                // 异步拉取远程设备的应用图标及真实标签并实时局部刷新
+                AppIconManager.syncRemoteIcons(applicationContext, client) { pkgName, label, _ ->
+                    if (label != null) {
+                        allApps.find { it.packageName == pkgName }?.appName = label
+                    }
+                    val index = displayApps.indexOfFirst { it.packageName == pkgName }
+                    if (index >= 0) {
+                        if (label != null) {
+                            displayApps[index].appName = label
+                        }
+                        adapter.notifyItemChanged(index)
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -174,18 +189,25 @@ class AppManagerActivity : AppCompatActivity() {
 
     private suspend fun extractApk(app: AppItem) {
         val client = DeviceManager.adbClient ?: return
+        var sync: com.toolbox.adbhelper.core.adb.AdbSync? = null
         try {
-            val sync = client.openSync()
-            val targetFile = File(getExternalFilesDir(null), "${app.packageName}.apk")
-            sync.pullFile(app.apkPath, targetFile)
-            sync.close()
+            sync = client.openSync()
+            val fileName = "${app.packageName}.apk"
+            val savedLocation = com.toolbox.adbhelper.core.utils.DownloadHelper.downloadToPublicDownloads(
+                applicationContext,
+                sync,
+                app.apkPath,
+                fileName
+            )
             withContext(Dispatchers.Main) {
-                Toast.makeText(this@AppManagerActivity, "APK 已导出至:\n${targetFile.absolutePath}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@AppManagerActivity, "APK 已导出至本机下载目录:\n$savedLocation", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 Toast.makeText(this@AppManagerActivity, "提取失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+        } finally {
+            sync?.close()
         }
     }
 
@@ -236,6 +258,26 @@ class AppManagerActivity : AppCompatActivity() {
             holder.binding.tvPackageName.text = item.packageName
             holder.binding.tvAppTag.text = if (item.isSystem) "系统" else "第三方"
             holder.binding.root.setOnClickListener { onItemClick(item) }
+
+            val pkg = item.packageName
+            holder.binding.ivAppIcon.tag = pkg
+            val memIcon = AppIconManager.getFromMemory(pkg)
+            if (memIcon != null) {
+                holder.binding.ivAppIcon.setImageBitmap(memIcon)
+            } else {
+                holder.binding.ivAppIcon.setImageResource(android.R.drawable.sym_def_app_icon)
+                val context = holder.binding.root.context
+                (context as? AppCompatActivity)?.lifecycleScope?.launch(Dispatchers.IO) {
+                    val diskIcon = AppIconManager.loadIcon(context, pkg)
+                    if (diskIcon != null) {
+                        withContext(Dispatchers.Main) {
+                            if (holder.binding.ivAppIcon.tag == pkg) {
+                                holder.binding.ivAppIcon.setImageBitmap(diskIcon)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         override fun getItemCount(): Int = list.size
