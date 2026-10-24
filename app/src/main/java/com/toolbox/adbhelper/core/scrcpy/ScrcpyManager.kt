@@ -44,6 +44,38 @@ class ScrcpyManager(
     private var controlThread: Thread? = null
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
+    @Volatile
+    private var isSurfaceReady = false
+    private var currentSurface: Surface? = null
+
+    /**
+     * 动态更新 MediaCodec 的输出 Surface (API 23+)
+     * 用于 App 切后台 (Surface 销毁) 与切回前台 (Surface 重建) 时的无缝切换，
+     * 无需断开底层推流连接或重启解码器，彻底杜绝黑屏问题。
+     */
+    fun updateSurface(newSurface: Surface?): Boolean {
+        currentSurface = newSurface
+        if (newSurface == null || !newSurface.isValid) {
+            isSurfaceReady = false
+            Log.d(TAG, "Surface 销毁或脱离，暂停解码画面渲染")
+            return true
+        }
+
+        val codec = mediaCodec
+        if (codec != null && isStreaming.get()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    codec.setOutputSurface(newSurface)
+                    isSurfaceReady = true
+                    Log.i(TAG, "MediaCodec 输出 Surface 动态切换成功，画面即时恢复")
+                    return true
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaCodec.setOutputSurface 失败 (${e.message})，需完整重构推流")
+                }
+            }
+        }
+        return false
+    }
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
@@ -217,6 +249,9 @@ class ScrcpyManager(
 
         if (isStreaming.getAndSet(true)) return
 
+        currentSurface = surface
+        isSurfaceReady = surface.isValid
+
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize, localW, localH)
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
         val maxFps = if (config.maxFps > 0) config.maxFps else 60
@@ -245,6 +280,11 @@ class ScrcpyManager(
             var finalH = targetH
 
             try {
+                // 启动前确保清理对端残留的 scrcpy-server / screenrecord 进程，释放 localabstract:scrcpy 端口
+                try {
+                    adbClient.executeShell("pkill -9 -f com.genymobile.scrcpy.Server; pkill -9 -f screenrecord", 2000)
+                } catch (_: Exception) {}
+
                 // 1. 尝试使用官方 scrcpy-server (60fps, 极低延迟, 免装 APK)
                 val useScrcpyServer = ensureServerPushed()
                 if (useScrcpyServer) {
@@ -382,7 +422,14 @@ class ScrcpyManager(
                                         firstFrameRendered = true
                                         onFirstFrame(finalW, finalH)
                                     }
-                                    activeCodec.releaseOutputBuffer(outIndex, true)
+                                    val shouldRender = isSurfaceReady && isStreaming.get()
+                                    try {
+                                        activeCodec.releaseOutputBuffer(outIndex, shouldRender)
+                                    } catch (e: Exception) {
+                                        if (isStreaming.get()) {
+                                            Log.w(TAG, "Transient output buffer release error: ${e.message}")
+                                        }
+                                    }
                                 }
                                 outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                                     Log.i(TAG, "Decoder output format changed: ${activeCodec.outputFormat}")
@@ -424,7 +471,11 @@ class ScrcpyManager(
                     }
                 }
             } finally {
-                stopStream()
+                synchronized(this@ScrcpyManager) {
+                    if (streamThread == Thread.currentThread()) {
+                        stopStream()
+                    }
+                }
             }
         }, "ScrcpyStreamInThread").apply { start() }
     }
@@ -549,6 +600,8 @@ class ScrcpyManager(
      */
     fun stopStream() {
         if (!isStreaming.getAndSet(false)) return
+        isSurfaceReady = false
+        currentSurface = null
 
         // 1. 优先停止解码器与解码线程，防止它们继续向 socket 写入 OKAY 数据包
         try {
@@ -559,10 +612,14 @@ class ScrcpyManager(
         serverVideoWidth = 0
         serverVideoHeight = 0
 
-        try {
-            streamThread?.interrupt()
-        } catch (_: Exception) {}
+        val t = streamThread
         streamThread = null
+        try {
+            t?.interrupt()
+            if (t != null && t != Thread.currentThread()) {
+                t.join(800)
+            }
+        } catch (_: Exception) {}
 
         try {
             audioPlayer?.stop()

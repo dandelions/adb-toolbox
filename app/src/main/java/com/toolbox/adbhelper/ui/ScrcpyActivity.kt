@@ -64,6 +64,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var isReconnecting = false
     private var reconnectAttempts = 0
     private var reconnectJob: Job? = null
+    private var backgroundTimeoutJob: Job? = null
+    private var streamRetryCount = 0
 
     companion object {
         private const val PREFS_NAME = "scrcpy_prefs"
@@ -508,6 +510,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onResume() {
         super.onResume()
         isActivityResumed = true
+        backgroundTimeoutJob?.cancel()
+        backgroundTimeoutJob = null
+
         // 从后台切回前台时，主动检查连接并恢复推流
         checkAndResumeStream()
     }
@@ -520,10 +525,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onStop() {
         super.onStop()
         isActivityStopped = true
-        // 用户按 Home 键或切换到其他 App 后，系统会销毁底层 Surface。
-        // 必须及时安全地停止当前音视频推流，释放 MediaCodec 和 AdbStream，
-        // 防止后台 MediaCodec 向已销毁的 Surface 写入导致解码崩溃或黑屏卡死。
-        stopStreaming()
+        // 用户按 Home 键或切换到其他 App 后，底层 Surface 会被系统销毁。
+        // 为保证无缝恢复，短时间切换保持推流会话与解码器，仅暂停向销毁的 Surface 写入；
+        // 若切到后台超过 60 秒，则安全释放硬件推流以节约被控机和本机的电池与网络。
+        backgroundTimeoutJob?.cancel()
+        backgroundTimeoutJob = lifecycleScope.launch {
+            delay(60000)
+            if (isActivityStopped) {
+                stopStreaming()
+            }
+        }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -538,8 +549,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceCreated = false
-        // Surface 被销毁时确保硬件推流停止
-        stopStreaming()
+        // Surface 被销毁时通知 ScrcpyManager 解绑 Surface，避免向无效画布写入
+        scrcpyManager?.updateSurface(null)
     }
 
     /**
@@ -551,31 +562,40 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // 1. 检查 ADB 连接状态
         val client = DeviceManager.adbClient
         if (client == null || !client.isConnected) {
-            triggerAutoReconnect()
+            triggerAutoReconnect(force = true)
             return
         }
 
         // 2. 连接有效，同步更新 manager 的 client
         scrcpyManager?.updateAdbClient(client)
 
-        // 3. 若正在推流中，无需重复开启
-        if (scrcpyManager?.isStreamingNow() == true || (isFallbackMode && streamJob?.isActive == true)) {
-            return
-        }
-
-        // 4. 主动唤醒屏幕
+        // 3. 主动唤醒屏幕
         lifecycleScope.launch(Dispatchers.IO) {
-            scrcpyManager?.turnScreenOn()
+            try {
+                scrcpyManager?.turnScreenOn()
+            } catch (_: Exception) {}
         }
 
-        // 5. 按照用户当前选择的模式拉起画面
+        // 4. 按照用户当前选择的模式拉起画面
         if (userSelectedFallback) {
+            if (isFallbackMode && streamJob?.isActive == true) return
             startFallbackImageStream()
         } else {
             binding.surfaceView.visibility = View.VISIBLE
             binding.ivScreen.visibility = View.GONE
 
-            if (surfaceCreated && binding.surfaceView.holder.surface.isValid) {
+            val surface = binding.surfaceView.holder.surface
+            if (surfaceCreated && surface != null && surface.isValid) {
+                // 如果当前已经在推流中，尝试直接动态无缝更新输出 Surface
+                if (scrcpyManager?.isStreamingNow() == true) {
+                    val updated = scrcpyManager?.updateSurface(surface) ?: false
+                    if (updated) {
+                        binding.pbLoading.visibility = View.GONE
+                        binding.tvStreamStatus.visibility = View.GONE
+                        updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${videoWidth}x${videoHeight} ${config.maxFps}fps")
+                        return
+                    }
+                }
                 startStreaming()
             } else {
                 binding.pbLoading.visibility = View.VISIBLE
@@ -589,7 +609,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     /**
      * ADB 连接异常或后台断开时，自动发起快速重连
      */
-    private fun triggerAutoReconnect() {
+    private fun triggerAutoReconnect(force: Boolean = true) {
         if (isReconnecting || isActivityStopped) return
         isReconnecting = true
 
@@ -608,15 +628,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.tvStreamStatus.setOnClickListener {
             if (isReconnecting) return@setOnClickListener
             reconnectAttempts = 0
-            triggerAutoReconnect()
+            triggerAutoReconnect(force = true)
         }
 
         reconnectJob?.cancel()
         reconnectJob = lifecycleScope.launch {
             var reconnected = false
-            for (i in 1..3) {
+            for (i in 1..4) {
                 if (isActivityStopped || !isActive) break
-                val success = DeviceManager.tryReconnect(this@ScrcpyActivity)
+                val success = DeviceManager.tryReconnect(this@ScrcpyActivity, force = (force || i > 1))
                 if (success) {
                     reconnected = true
                     break
@@ -641,7 +661,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     updateDiagBar("#F44336", "重连失败 | 请检查设备网络")
                     binding.tvStreamStatus.setOnClickListener {
                         reconnectAttempts = 0
-                        triggerAutoReconnect()
+                        triggerAutoReconnect(force = true)
                     }
                 }
             }
@@ -781,6 +801,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             localH = ch,
             onFirstFrame = { w, h ->
                 receivedFirstH264Frame = true
+                streamRetryCount = 0
                 watchdogJob?.cancel()
                 runOnUiThread {
                     if (w > 0 && h > 0) {
@@ -814,7 +835,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     val client = DeviceManager.adbClient
                     if (client == null || !client.isConnected) {
                         updateDiagBar("#F44336", "连接已断开: $errMsg")
-                        triggerAutoReconnect()
+                        triggerAutoReconnect(force = true)
+                        return@runOnUiThread
+                    }
+
+                    streamRetryCount++
+                    if (streamRetryCount > 2) {
+                        streamRetryCount = 0
+                        updateDiagBar("#FFB300", "硬件流异常，已自动切至稳定截屏模式")
+                        startFallbackImageStream()
                         return@runOnUiThread
                     }
 
@@ -828,7 +857,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             if (DeviceManager.adbClient?.isConnected == true) {
                                 startStreaming()
                             } else {
-                                triggerAutoReconnect()
+                                triggerAutoReconnect(force = true)
                             }
                         }
                     }
@@ -1133,6 +1162,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onDestroy() {
         super.onDestroy()
+        backgroundTimeoutJob?.cancel()
+        backgroundTimeoutJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         stopStreaming()

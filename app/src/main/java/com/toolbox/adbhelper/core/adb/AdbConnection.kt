@@ -45,7 +45,16 @@ class AdbConnection(
     private fun sendMsg(msg: AdbMessage) {
         synchronized(writeLock) {
             if (!isClosed.get()) {
-                msg.writeToStream(transport.outputStream)
+                try {
+                    msg.writeToStream(transport.outputStream)
+                } catch (e: Exception) {
+                    if (!isClosed.get()) {
+                        Log.e(TAG, "Write error: ${e.message}")
+                        lastError = e.message ?: "发送 ADB 数据异常"
+                        close()
+                    }
+                    throw e
+                }
             }
         }
     }
