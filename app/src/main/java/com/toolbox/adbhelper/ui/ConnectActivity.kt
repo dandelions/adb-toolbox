@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -20,6 +21,7 @@ import com.toolbox.adbhelper.core.adb.AdbCrypto
 import com.toolbox.adbhelper.core.adb.TcpTransport
 import com.toolbox.adbhelper.core.model.ConnectedDevice
 import com.toolbox.adbhelper.core.model.ConnectionType
+import com.toolbox.adbhelper.core.model.ScrcpyPresets
 import com.toolbox.adbhelper.core.usb.UsbManagerHelper
 import com.toolbox.adbhelper.databinding.ActivityConnectBinding
 import kotlinx.coroutines.Dispatchers
@@ -125,24 +127,6 @@ class ConnectActivity : AppCompatActivity() {
 
     private fun initScrcpyPresetViews() {
         val scrcpyPrefs = getSharedPreferences(SCRCPY_PREFS_NAME, Context.MODE_PRIVATE)
-        val currentSize = scrcpyPrefs.getInt(KEY_SCRCPY_MAX_SIZE, 1280)
-        val currentBitrate = scrcpyPrefs.getInt(KEY_SCRCPY_BITRATE, 4_000_000)
-
-        when (currentSize) {
-            0 -> binding.btnConnectResNative.isChecked = true
-            1920 -> binding.btnConnectRes1080.isChecked = true
-            1280 -> binding.btnConnectRes720.isChecked = true
-            854 -> binding.btnConnectRes480.isChecked = true
-            else -> binding.btnConnectRes720.isChecked = true
-        }
-
-        when (currentBitrate) {
-            2_000_000 -> binding.btnConnectBitrate2M.isChecked = true
-            4_000_000 -> binding.btnConnectBitrate4M.isChecked = true
-            8_000_000 -> binding.btnConnectBitrate8M.isChecked = true
-            16_000_000 -> binding.btnConnectBitrate16M.isChecked = true
-            else -> binding.btnConnectBitrate4M.isChecked = true
-        }
 
         fun updatePresetHint() {
             val size = scrcpyPrefs.getInt(KEY_SCRCPY_MAX_SIZE, 1280)
@@ -154,42 +138,37 @@ class ConnectActivity : AppCompatActivity() {
                 854 -> "480P"
                 else -> "${size}P"
             }
-            val bitStr = when (bitrate) {
-                2_000_000 -> "2M"
-                4_000_000 -> "4M"
-                8_000_000 -> "8M"
-                16_000_000 -> "16M"
-                else -> "${bitrate / 1_000_000}M"
-            }
+            val bitStr = "${bitrate / 1_000_000}M"
             binding.tvCurrentPresetHint.text = "已预设: $resStr / $bitStr"
         }
+
+        val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
+        val resAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, resLabels)
+        binding.actvConnectResolution.setAdapter(resAdapter)
+
+        val currentSize = scrcpyPrefs.getInt(KEY_SCRCPY_MAX_SIZE, 1280)
+        binding.actvConnectResolution.setText(ScrcpyPresets.getResolutionLabel(currentSize), false)
+
+        binding.actvConnectResolution.setOnItemClickListener { _, _, position, _ ->
+            val selected = ScrcpyPresets.RESOLUTION_OPTIONS[position]
+            scrcpyPrefs.edit().putInt(KEY_SCRCPY_MAX_SIZE, selected.value).apply()
+            updatePresetHint()
+        }
+
+        val bitLabels = ScrcpyPresets.BITRATE_OPTIONS.map { it.label }
+        val bitAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, bitLabels)
+        binding.actvConnectBitrate.setAdapter(bitAdapter)
+
+        val currentBitrate = scrcpyPrefs.getInt(KEY_SCRCPY_BITRATE, 4_000_000)
+        binding.actvConnectBitrate.setText(ScrcpyPresets.getBitrateLabel(currentBitrate), false)
+
+        binding.actvConnectBitrate.setOnItemClickListener { _, _, position, _ ->
+            val selected = ScrcpyPresets.BITRATE_OPTIONS[position]
+            scrcpyPrefs.edit().putInt(KEY_SCRCPY_BITRATE, selected.value).apply()
+            updatePresetHint()
+        }
+
         updatePresetHint()
-
-        binding.toggleConnectResolution.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            val targetSize = when (checkedId) {
-                R.id.btnConnectResNative -> 0
-                R.id.btnConnectRes1080 -> 1920
-                R.id.btnConnectRes720 -> 1280
-                R.id.btnConnectRes480 -> 854
-                else -> 1280
-            }
-            scrcpyPrefs.edit().putInt(KEY_SCRCPY_MAX_SIZE, targetSize).apply()
-            updatePresetHint()
-        }
-
-        binding.toggleConnectBitrate.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            val targetBitrate = when (checkedId) {
-                R.id.btnConnectBitrate2M -> 2_000_000
-                R.id.btnConnectBitrate4M -> 4_000_000
-                R.id.btnConnectBitrate8M -> 8_000_000
-                R.id.btnConnectBitrate16M -> 16_000_000
-                else -> 4_000_000
-            }
-            scrcpyPrefs.edit().putInt(KEY_SCRCPY_BITRATE, targetBitrate).apply()
-            updatePresetHint()
-        }
     }
 
     /**

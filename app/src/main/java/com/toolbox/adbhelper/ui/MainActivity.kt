@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -14,6 +15,7 @@ import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.DeviceInfo
 import com.toolbox.adbhelper.core.model.NavPosition
+import com.toolbox.adbhelper.core.model.ScrcpyPresets
 import com.toolbox.adbhelper.databinding.ActivityMainBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
 import kotlinx.coroutines.Dispatchers
@@ -276,31 +278,36 @@ class MainActivity : AppCompatActivity() {
         val isFullscreen = prefs.getBoolean("scrcpy_fullscreen", false)
         val turnScreenOff = prefs.getBoolean("scrcpy_screen_off", false)
 
-        // 1. 初始化分辨率
-        when (currentSize) {
-            0 -> dialogBinding.btnResNative.isChecked = true
-            1920 -> dialogBinding.btnRes1080.isChecked = true
-            1280 -> dialogBinding.btnRes720.isChecked = true
-            854 -> dialogBinding.btnRes480.isChecked = true
-            else -> dialogBinding.btnRes720.isChecked = true
+        var selectedSize = currentSize
+        var selectedBitrate = currentBitrate
+        var selectedNavPos = navPosName
+
+        // 1. 初始化分辨率下拉
+        val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
+        val resAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, resLabels)
+        dialogBinding.actvResolution.setAdapter(resAdapter)
+        dialogBinding.actvResolution.setText(ScrcpyPresets.getResolutionLabel(currentSize), false)
+        dialogBinding.actvResolution.setOnItemClickListener { _, _, position, _ ->
+            selectedSize = ScrcpyPresets.RESOLUTION_OPTIONS[position].value
         }
 
-        // 2. 初始化码率
-        when (currentBitrate) {
-            2_000_000 -> dialogBinding.btnBitrate2M.isChecked = true
-            4_000_000 -> dialogBinding.btnBitrate4M.isChecked = true
-            8_000_000 -> dialogBinding.btnBitrate8M.isChecked = true
-            16_000_000 -> dialogBinding.btnBitrate16M.isChecked = true
-            else -> dialogBinding.btnBitrate4M.isChecked = true
+        // 2. 初始化码率下拉
+        val bitLabels = ScrcpyPresets.BITRATE_OPTIONS.map { it.label }
+        val bitAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, bitLabels)
+        dialogBinding.actvBitrate.setAdapter(bitAdapter)
+        dialogBinding.actvBitrate.setText(ScrcpyPresets.getBitrateLabel(currentBitrate), false)
+        dialogBinding.actvBitrate.setOnItemClickListener { _, _, position, _ ->
+            selectedBitrate = ScrcpyPresets.BITRATE_OPTIONS[position].value
         }
 
-        // 3. 初始化导航栏位置
-        when (navPosName) {
-            NavPosition.BOTTOM.name -> dialogBinding.btnNavBottom.isChecked = true
-            NavPosition.TOP.name -> dialogBinding.btnNavTop.isChecked = true
-            NavPosition.LEFT.name -> dialogBinding.btnNavLeft.isChecked = true
-            NavPosition.RIGHT.name -> dialogBinding.btnNavRight.isChecked = true
-            else -> dialogBinding.btnNavBottom.isChecked = true
+        // 3. 初始化导航栏位置下拉
+        val navPosEnum = try { NavPosition.valueOf(navPosName) } catch (_: Exception) { NavPosition.BOTTOM }
+        val navLabels = ScrcpyPresets.NAV_POSITION_OPTIONS.map { it.label }
+        val navAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, navLabels)
+        dialogBinding.actvNavPosition.setAdapter(navAdapter)
+        dialogBinding.actvNavPosition.setText(ScrcpyPresets.getNavPositionLabel(navPosEnum), false)
+        dialogBinding.actvNavPosition.setOnItemClickListener { _, _, position, _ ->
+            selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value.name
         }
 
         // 4. 开关
@@ -315,35 +322,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         dialogBinding.btnApplySettings.setOnClickListener {
-            val newSize = when (dialogBinding.toggleResolution.checkedButtonId) {
-                R.id.btnResNative -> 0
-                R.id.btnRes1080 -> 1920
-                R.id.btnRes720 -> 1280
-                R.id.btnRes480 -> 854
-                else -> 1280
-            }
-
-            val newBitrate = when (dialogBinding.toggleBitrate.checkedButtonId) {
-                R.id.btnBitrate2M -> 2_000_000
-                R.id.btnBitrate4M -> 4_000_000
-                R.id.btnBitrate8M -> 8_000_000
-                R.id.btnBitrate16M -> 16_000_000
-                else -> 4_000_000
-            }
-
-            val newNavPos = when (dialogBinding.toggleNavPosition.checkedButtonId) {
-                R.id.btnNavBottom -> NavPosition.BOTTOM.name
-                R.id.btnNavTop -> NavPosition.TOP.name
-                R.id.btnNavLeft -> NavPosition.LEFT.name
-                R.id.btnNavRight -> NavPosition.RIGHT.name
-                R.id.btnNavHide -> NavPosition.HIDE.name
-                else -> NavPosition.BOTTOM.name
-            }
-
             prefs.edit()
-                .putInt("scrcpy_max_size", newSize)
-                .putInt("scrcpy_bitrate", newBitrate)
-                .putString("scrcpy_nav_pos", newNavPos)
+                .putInt("scrcpy_max_size", selectedSize)
+                .putInt("scrcpy_bitrate", selectedBitrate)
+                .putString("scrcpy_nav_pos", selectedNavPos)
                 .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
                 .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
                 .apply()

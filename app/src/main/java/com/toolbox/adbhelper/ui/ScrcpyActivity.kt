@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.*
+import android.widget.ArrayAdapter
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -20,6 +21,7 @@ import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.NavPosition
 import com.toolbox.adbhelper.core.model.ScrcpyConfig
+import com.toolbox.adbhelper.core.model.ScrcpyPresets
 import com.toolbox.adbhelper.core.scrcpy.ScrcpyManager
 import com.toolbox.adbhelper.databinding.ActivityScrcpyBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
@@ -353,31 +355,35 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .setView(dialogBinding.root)
             .create()
 
-        // 1. 初始化分辨率
-        when (config.maxSize) {
-            0 -> dialogBinding.btnResNative.isChecked = true
-            1920 -> dialogBinding.btnRes1080.isChecked = true
-            1280 -> dialogBinding.btnRes720.isChecked = true
-            854 -> dialogBinding.btnRes480.isChecked = true
-            else -> dialogBinding.btnRes720.isChecked = true
+        var selectedSize = config.maxSize
+        var selectedBitrate = config.bitRate
+        var selectedNavPos = config.navPosition
+
+        // 1. 初始化分辨率下拉
+        val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
+        val resAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, resLabels)
+        dialogBinding.actvResolution.setAdapter(resAdapter)
+        dialogBinding.actvResolution.setText(ScrcpyPresets.getResolutionLabel(config.maxSize), false)
+        dialogBinding.actvResolution.setOnItemClickListener { _, _, position, _ ->
+            selectedSize = ScrcpyPresets.RESOLUTION_OPTIONS[position].value
         }
 
-        // 2. 初始化码率
-        when (config.bitRate) {
-            2_000_000 -> dialogBinding.btnBitrate2M.isChecked = true
-            4_000_000 -> dialogBinding.btnBitrate4M.isChecked = true
-            8_000_000 -> dialogBinding.btnBitrate8M.isChecked = true
-            16_000_000 -> dialogBinding.btnBitrate16M.isChecked = true
-            else -> dialogBinding.btnBitrate4M.isChecked = true
+        // 2. 初始化码率下拉
+        val bitLabels = ScrcpyPresets.BITRATE_OPTIONS.map { it.label }
+        val bitAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, bitLabels)
+        dialogBinding.actvBitrate.setAdapter(bitAdapter)
+        dialogBinding.actvBitrate.setText(ScrcpyPresets.getBitrateLabel(config.bitRate), false)
+        dialogBinding.actvBitrate.setOnItemClickListener { _, _, position, _ ->
+            selectedBitrate = ScrcpyPresets.BITRATE_OPTIONS[position].value
         }
 
-        // 3. 初始化导航栏位置
-        when (config.navPosition) {
-            NavPosition.BOTTOM -> dialogBinding.btnNavBottom.isChecked = true
-            NavPosition.TOP -> dialogBinding.btnNavTop.isChecked = true
-            NavPosition.LEFT -> dialogBinding.btnNavLeft.isChecked = true
-            NavPosition.RIGHT -> dialogBinding.btnNavRight.isChecked = true
-            NavPosition.FLOATING, NavPosition.HIDE -> dialogBinding.btnNavHide.isChecked = true
+        // 3. 初始化导航栏位置下拉
+        val navLabels = ScrcpyPresets.NAV_POSITION_OPTIONS.map { it.label }
+        val navAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, navLabels)
+        dialogBinding.actvNavPosition.setAdapter(navAdapter)
+        dialogBinding.actvNavPosition.setText(ScrcpyPresets.getNavPositionLabel(config.navPosition), false)
+        dialogBinding.actvNavPosition.setOnItemClickListener { _, _, position, _ ->
+            selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value
         }
 
         // 4. 初始化开关
@@ -386,33 +392,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         // 应用按钮
         dialogBinding.btnApplySettings.setOnClickListener {
-            // 解析分辨率
-            config.maxSize = when (dialogBinding.toggleResolution.checkedButtonId) {
-                R.id.btnResNative -> 0
-                R.id.btnRes1080 -> 1920
-                R.id.btnRes720 -> 1280
-                R.id.btnRes480 -> 854
-                else -> 1280
-            }
-
-            // 解析码率
-            config.bitRate = when (dialogBinding.toggleBitrate.checkedButtonId) {
-                R.id.btnBitrate2M -> 2_000_000
-                R.id.btnBitrate4M -> 4_000_000
-                R.id.btnBitrate8M -> 8_000_000
-                R.id.btnBitrate16M -> 16_000_000
-                else -> 4_000_000
-            }
-
-            // 解析导航栏位置
-            config.navPosition = when (dialogBinding.toggleNavPosition.checkedButtonId) {
-                R.id.btnNavBottom -> NavPosition.BOTTOM
-                R.id.btnNavTop -> NavPosition.TOP
-                R.id.btnNavLeft -> NavPosition.LEFT
-                R.id.btnNavRight -> NavPosition.RIGHT
-                R.id.btnNavHide -> NavPosition.HIDE
-                else -> NavPosition.BOTTOM
-            }
+            config.maxSize = selectedSize
+            config.bitRate = selectedBitrate
+            config.navPosition = selectedNavPos
 
             val oldFullscreen = config.isFullscreen
             config.isFullscreen = dialogBinding.switchFullscreen.isChecked

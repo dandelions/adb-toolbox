@@ -19,7 +19,7 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <!-- 分辨率设置 -->
+        <!-- 分辨率下拉选择 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -28,196 +28,89 @@
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
-        <com.google.android.material.button.MaterialButtonToggleGroup
-            android:id="@+id/toggleResolution"
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutResolution"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            app:selectionRequired="true"
-            app:singleSelection="true">
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnResNative"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvResolution"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="原画"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRes1080"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="1080P"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRes720"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="720P"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRes480"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="480P"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-        </com.google.android.material.button.MaterialButtonToggleGroup>
-
-        <!-- 码率设置 -->
+        <!-- 码率下拉选择 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="14dp"
             android:text="传输码率 (码率越低延迟越小，WiFi推荐4M/2M)"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
-        <com.google.android.material.button.MaterialButtonToggleGroup
-            android:id="@+id/toggleBitrate"
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutBitrate"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            app:selectionRequired="true"
-            app:singleSelection="true">
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBitrate2M"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvBitrate"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="2M"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBitrate4M"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="4M"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBitrate8M"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="8M"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBitrate16M"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="16M"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-        </com.google.android.material.button.MaterialButtonToggleGroup>
-
-        <!-- 导航栏位置与显示 -->
+        <!-- 导航栏位置下拉选择 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="14dp"
             android:text="控制栏停靠位置与显示"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
-        <com.google.android.material.button.MaterialButtonToggleGroup
-            android:id="@+id/toggleNavPosition"
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutNavPosition"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            app:selectionRequired="true"
-            app:singleSelection="true">
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNavBottom"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvNavPosition"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="底部"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNavTop"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="顶部"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNavLeft"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="左侧"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNavRight"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="右侧"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNavHide"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="隐藏"
-                android:textColor="@color/selector_toggle_text"
-                app:backgroundTint="@color/selector_toggle_bg"
-                app:strokeColor="@color/selector_toggle_stroke" />
-
-        </com.google.android.material.button.MaterialButtonToggleGroup>
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <!-- 开关选项 -->
         <com.google.android.material.materialswitch.MaterialSwitch

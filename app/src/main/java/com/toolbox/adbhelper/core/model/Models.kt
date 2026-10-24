@@ -77,3 +77,47 @@ data class ScrcpyConfig(
     var navPosition: NavPosition = NavPosition.BOTTOM,
     var isFullscreen: Boolean = false
 ) : Serializable
+
+data class ScrcpyOption<T>(
+    val label: String,
+    val value: T
+)
+
+object ScrcpyPresets {
+    val RESOLUTION_OPTIONS = listOf(
+        ScrcpyOption("720P (标清推荐，画质流畅均衡)", 1280),
+        ScrcpyOption("1080P (全高清，高清晰度)", 1920),
+        ScrcpyOption("原画 (原生分辨率，不压缩尺寸)", 0),
+        ScrcpyOption("480P (流畅低延迟，弱网极速)", 854)
+    )
+
+    val BITRATE_OPTIONS = listOf(
+        ScrcpyOption("4 Mbps (平衡推荐，WiFi优先)", 4_000_000),
+        ScrcpyOption("2 Mbps (低码率，抗丢包低延迟)", 2_000_000),
+        ScrcpyOption("8 Mbps (高清画质，局域网推荐)", 8_000_000),
+        ScrcpyOption("16 Mbps (超清画质，极高码率)", 16_000_000)
+    )
+
+    val NAV_POSITION_OPTIONS = listOf(
+        ScrcpyOption("底部停靠 (标准推荐)", NavPosition.BOTTOM),
+        ScrcpyOption("顶部停靠", NavPosition.TOP),
+        ScrcpyOption("左侧悬浮停靠", NavPosition.LEFT),
+        ScrcpyOption("右侧悬浮停靠", NavPosition.RIGHT),
+        ScrcpyOption("隐藏控制栏 (完全沉浸)", NavPosition.HIDE)
+    )
+
+    fun getResolutionLabel(size: Int): String {
+        return RESOLUTION_OPTIONS.find { it.value == size }?.label
+            ?: if (size == 0) "原画" else "${size}P"
+    }
+
+    fun getBitrateLabel(bitrate: Int): String {
+        return BITRATE_OPTIONS.find { it.value == bitrate }?.label
+            ?: "${bitrate / 1_000_000} Mbps"
+    }
+
+    fun getNavPositionLabel(position: NavPosition): String {
+        return NAV_POSITION_OPTIONS.find { it.value == position }?.label
+            ?: "底部停靠"
+    }
+}
