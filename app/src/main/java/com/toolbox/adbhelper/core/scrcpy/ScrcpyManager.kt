@@ -43,6 +43,13 @@ class ScrcpyManager(
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
+    @Volatile
+    var serverVideoWidth: Int = 0
+        private set
+    @Volatile
+    var serverVideoHeight: Int = 0
+        private set
+
     /**
      * 音频转发状态与错误监听
      */
@@ -305,6 +312,8 @@ class ScrcpyManager(
                             if (serverW > 0 && serverH > 0) {
                                 finalW = serverW
                                 finalH = serverH
+                                serverVideoWidth = serverW
+                                serverVideoHeight = serverH
                             }
                             Log.i(TAG, "Scrcpy-server connected successfully, resolution: ${finalW}x${finalH}")
                         }
@@ -543,6 +552,8 @@ class ScrcpyManager(
             mediaCodec?.release()
         } catch (_: Exception) {}
         mediaCodec = null
+        serverVideoWidth = 0
+        serverVideoHeight = 0
 
         try {
             streamThread?.interrupt()
@@ -874,6 +885,26 @@ class ScrcpyManager(
                 }
             }
 
+            // scrcpy-server 服务端 Device.getPhysicalPoint 校验规则：
+            // 报文中的 screenWidth 和 screenHeight 必须与服务端的 unlockedVideoSize (即 serverVideoWidth x serverVideoHeight) 严格一致！
+            // 否则会直接抛出: "Ignore touch event, it was generated for a different device size" 并把事件全丢弃！
+            val targetW = if (serverVideoWidth > 0) serverVideoWidth else devW
+            val targetH = if (serverVideoHeight > 0) serverVideoHeight else devH
+            if (targetW <= 0 || targetH <= 0) return
+
+            // 若调用端传入的参考系 (devW, devH) 与服务端真实分辨率不一致，自动等比换算，确保绝对命中目标像素
+            val actualX = if (devW > 0 && devW != targetW) {
+                ((x.toFloat() / devW) * targetW).toInt()
+            } else {
+                x
+            }.coerceIn(0, targetW - 1)
+
+            val actualY = if (devH > 0 && devH != targetH) {
+                ((y.toFloat() / devH) * targetH).toInt()
+            } else {
+                y
+            }.coerceIn(0, targetH - 1)
+
             // 报文结构共 36 字节:
             // [0] TYPE: 2 (1 byte, TYPE_INJECT_TOUCH_EVENT / INJECT_MY_TOUCH_EVENT)
             // [1] action: 0=DOWN, 1=UP, 2=MOVE (1 byte)
@@ -889,10 +920,10 @@ class ScrcpyManager(
             buf.put(2.toByte())
             buf.put(scrcpyAction)
             buf.putLong(pointerId)
-            buf.putInt(x.coerceIn(0, maxOf(0, devW - 1)))
-            buf.putInt(y.coerceIn(0, maxOf(0, devH - 1)))
-            buf.putShort(devW.toShort())
-            buf.putShort(devH.toShort())
+            buf.putInt(actualX)
+            buf.putInt(actualY)
+            buf.putShort(targetW.toShort())
+            buf.putShort(targetH.toShort())
 
             val isRelease = (action == MotionEvent.ACTION_UP ||
                     action == MotionEvent.ACTION_CANCEL ||
@@ -980,11 +1011,12 @@ class ScrcpyManager(
 
     suspend fun sendTap(x: Int, y: Int) = withContext(Dispatchers.IO) {
         val stream = controlStream
-        if (stream != null && !stream.isClosed()) {
-            val (w, h) = getDeviceResolution()
+        if (stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
+            val (devW, devH) = getDeviceResolution()
             val now = SystemClock.uptimeMillis()
-            sendTouchEvent(MotionEvent.ACTION_DOWN, x, y, w, h, 0L, 1, now)
-            sendTouchEvent(MotionEvent.ACTION_UP, x, y, w, h, 0L, 0, now + 40)
+            sendTouchEvent(MotionEvent.ACTION_DOWN, x, y, devW, devH, 0L, 1, now)
+            kotlinx.coroutines.delay(40)
+            sendTouchEvent(MotionEvent.ACTION_UP, x, y, devW, devH, 0L, 0, now + 40)
             return@withContext
         }
         adbClient.executeShell("input tap $x $y")
@@ -992,19 +1024,19 @@ class ScrcpyManager(
 
     suspend fun sendSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int = 250) = withContext(Dispatchers.IO) {
         val stream = controlStream
-        if (stream != null && !stream.isClosed()) {
-            val (w, h) = getDeviceResolution()
+        if (stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
+            val (devW, devH) = getDeviceResolution()
             val start = SystemClock.uptimeMillis()
-            sendTouchEvent(MotionEvent.ACTION_DOWN, x1, y1, w, h, 0L, 1, start)
+            sendTouchEvent(MotionEvent.ACTION_DOWN, x1, y1, devW, devH, 0L, 1, start)
             val steps = (durationMs / 12).coerceIn(8, 30)
             for (i in 1..steps) {
                 val curX = x1 + ((x2 - x1) * i) / steps
                 val curY = y1 + ((y2 - y1) * i) / steps
                 val now = start + (durationMs * i / steps)
-                sendTouchEvent(MotionEvent.ACTION_MOVE, curX, curY, w, h, 0L, 1, now)
+                sendTouchEvent(MotionEvent.ACTION_MOVE, curX, curY, devW, devH, 0L, 1, now)
                 kotlinx.coroutines.delay((durationMs / steps).toLong().coerceAtLeast(5L))
             }
-            sendTouchEvent(MotionEvent.ACTION_UP, x2, y2, w, h, 0L, 0, start + durationMs)
+            sendTouchEvent(MotionEvent.ACTION_UP, x2, y2, devW, devH, 0L, 0, start + durationMs)
             return@withContext
         }
         adbClient.executeShell("input swipe $x1 $y1 $x2 $y2 $durationMs")

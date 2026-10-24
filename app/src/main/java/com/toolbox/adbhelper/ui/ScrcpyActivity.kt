@@ -293,46 +293,37 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.navBarWrapper.layoutParams = wrapperParams
     }
 
-    private fun getMappedDeviceCoords(touchX: Float, touchY: Float, view: View): Pair<Int, Int>? {
-        val (curDevW, curDevH) = getCurrentDeviceDimensions()
-        if (curDevW <= 0 || curDevH <= 0) return null
+    private fun getMappedDeviceCoords(touchX: Float, touchY: Float, view: View, targetW: Int, targetH: Int): Pair<Int, Int>? {
+        if (targetW <= 0 || targetH <= 0) return null
 
-        val containerW: Float
-        val containerH: Float
+        val displayView: View = if (binding.surfaceView.visibility == View.VISIBLE && binding.surfaceView.width > 0) {
+            binding.surfaceView
+        } else if (binding.ivScreen.visibility == View.VISIBLE && binding.ivScreen.width > 0) {
+            binding.ivScreen
+        } else {
+            binding.flScreenContainer
+        }
+
         val localX: Float
         val localY: Float
-
-        if (view == binding.flScreenContainer) {
-            containerW = view.width.toFloat()
-            containerH = view.height.toFloat()
+        if (view == displayView) {
             localX = touchX
             localY = touchY
         } else {
-            val cw = binding.flScreenContainer.width.toFloat()
-            val ch = binding.flScreenContainer.height.toFloat()
-            if (cw > 0 && ch > 0) {
-                containerW = cw
-                containerH = ch
-                localX = touchX + view.left
-                localY = touchY + view.top
-            } else {
-                containerW = view.width.toFloat()
-                containerH = view.height.toFloat()
-                localX = touchX
-                localY = touchY
-            }
+            // view 为 flScreenContainer，displayView 为其居中子 View
+            localX = touchX - displayView.left
+            localY = touchY - displayView.top
         }
 
-        if (containerW <= 0 || containerH <= 0) return null
+        val dw = displayView.width.toFloat()
+        val dh = displayView.height.toFloat()
+        if (dw <= 0f || dh <= 0f) return null
 
-        val scale = minOf(containerW / curDevW, containerH / curDevH)
-        val videoW = curDevW * scale
-        val videoH = curDevH * scale
-        val offsetX = (containerW - videoW) / 2f
-        val offsetY = (containerH - videoH) / 2f
+        val normX = (localX / dw).coerceIn(0f, 1f)
+        val normY = (localY / dh).coerceIn(0f, 1f)
 
-        val targetX = (((localX - offsetX) / videoW) * curDevW).toInt().coerceIn(0, curDevW - 1)
-        val targetY = (((localY - offsetY) / videoH) * curDevH).toInt().coerceIn(0, curDevH - 1)
+        val targetX = (normX * (targetW - 1)).toInt().coerceIn(0, targetW - 1)
+        val targetY = (normY * (targetH - 1)).toInt().coerceIn(0, targetH - 1)
         return Pair(targetX, targetY)
     }
 
@@ -341,20 +332,34 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val touchListener = View.OnTouchListener { v, event ->
             val manager = scrcpyManager ?: return@OnTouchListener false
             val (curDevW, curDevH) = getCurrentDeviceDimensions()
-            if (curDevW <= 0 || curDevH <= 0) return@OnTouchListener false
+            val useControl = manager.hasControl()
+
+            // 极为关键：若是 scrcpy 原生控制流，目标坐标系与尺寸必须是服务端的真实视频编码尺寸 (serverVideoWidth x serverVideoHeight)
+            // 绝不能传物理分辨率，否则服务端 Device.getPhysicalPoint 会因为 Size 不匹配直接抛出 Ignore touch event 并丢弃！
+            val targetW = if (useControl) {
+                if (manager.serverVideoWidth > 0) manager.serverVideoWidth else videoWidth
+            } else {
+                curDevW
+            }
+            val targetH = if (useControl) {
+                if (manager.serverVideoHeight > 0) manager.serverVideoHeight else videoHeight
+            } else {
+                curDevH
+            }
+            if (targetW <= 0 || targetH <= 0) return@OnTouchListener false
 
             // 1. 优先通过原生 scrcpy 36 字节极速控制流注入（微秒级实时响应，带时间戳与多点触控支持，彻底解决滑动不跟手）
-            if (manager.hasControl()) {
+            if (useControl) {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         val pId = event.getPointerId(0).toLong()
-                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v) ?: return@OnTouchListener false
+                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v, targetW, targetH) ?: return@OnTouchListener false
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_DOWN,
                             x = coords.first,
                             y = coords.second,
-                            devW = curDevW,
-                            devH = curDevH,
+                            devW = targetW,
+                            devH = targetH,
                             pointerId = pId,
                             buttons = if (event.buttonState == 0) 1 else event.buttonState,
                             timeMs = event.eventTime
@@ -364,13 +369,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         val actionIndex = event.actionIndex
                         val pId = event.getPointerId(actionIndex).toLong()
-                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v) ?: return@OnTouchListener false
+                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v, targetW, targetH) ?: return@OnTouchListener false
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_DOWN,
                             x = coords.first,
                             y = coords.second,
-                            devW = curDevW,
-                            devH = curDevH,
+                            devW = targetW,
+                            devH = targetH,
                             pointerId = pId,
                             buttons = if (event.buttonState == 0) 1 else event.buttonState,
                             timeMs = event.eventTime
@@ -380,13 +385,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     MotionEvent.ACTION_MOVE -> {
                         for (i in 0 until event.pointerCount) {
                             val pId = event.getPointerId(i).toLong()
-                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v) ?: continue
+                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v, targetW, targetH) ?: continue
                             manager.sendTouchEvent(
                                 action = MotionEvent.ACTION_MOVE,
                                 x = coords.first,
                                 y = coords.second,
-                                devW = curDevW,
-                                devH = curDevH,
+                                devW = targetW,
+                                devH = targetH,
                                 pointerId = pId,
                                 buttons = if (event.buttonState == 0) 1 else event.buttonState,
                                 timeMs = event.eventTime
@@ -397,13 +402,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     MotionEvent.ACTION_POINTER_UP -> {
                         val actionIndex = event.actionIndex
                         val pId = event.getPointerId(actionIndex).toLong()
-                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v) ?: return@OnTouchListener false
+                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v, targetW, targetH) ?: return@OnTouchListener false
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_UP,
                             x = coords.first,
                             y = coords.second,
-                            devW = curDevW,
-                            devH = curDevH,
+                            devW = targetW,
+                            devH = targetH,
                             pointerId = pId,
                             buttons = 0,
                             timeMs = event.eventTime
@@ -412,13 +417,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     MotionEvent.ACTION_UP -> {
                         val pId = event.getPointerId(0).toLong()
-                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v) ?: return@OnTouchListener false
+                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v, targetW, targetH) ?: return@OnTouchListener false
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_UP,
                             x = coords.first,
                             y = coords.second,
-                            devW = curDevW,
-                            devH = curDevH,
+                            devW = targetW,
+                            devH = targetH,
                             pointerId = pId,
                             buttons = 0,
                             timeMs = event.eventTime
@@ -428,13 +433,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     MotionEvent.ACTION_CANCEL -> {
                         for (i in 0 until event.pointerCount) {
                             val pId = event.getPointerId(i).toLong()
-                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v) ?: continue
+                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v, targetW, targetH) ?: continue
                             manager.sendTouchEvent(
                                 action = MotionEvent.ACTION_CANCEL,
                                 x = coords.first,
                                 y = coords.second,
-                                devW = curDevW,
-                                devH = curDevH,
+                                devW = targetW,
+                                devH = targetH,
                                 pointerId = pId,
                                 buttons = 0,
                                 timeMs = event.eventTime
@@ -458,8 +463,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         val dx = event.x - touchDownX
                         val dy = event.y - touchDownY
 
-                        val downCoords = getMappedDeviceCoords(touchDownX, touchDownY, v) ?: return@OnTouchListener false
-                        val upCoords = getMappedDeviceCoords(event.x, event.y, v) ?: return@OnTouchListener false
+                        val downCoords = getMappedDeviceCoords(touchDownX, touchDownY, v, targetW, targetH) ?: return@OnTouchListener false
+                        val upCoords = getMappedDeviceCoords(event.x, event.y, v, targetW, targetH) ?: return@OnTouchListener false
 
                         lifecycleScope.launch(Dispatchers.IO) {
                             val distance = Math.hypot(dx.toDouble(), dy.toDouble())
