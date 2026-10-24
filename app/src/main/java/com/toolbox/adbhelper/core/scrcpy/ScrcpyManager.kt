@@ -193,13 +193,13 @@ class ScrcpyManager(
                 var useScrcpyServer = ensureServerPushed()
                 if (useScrcpyServer) {
                     try {
-                        // scrcpy 1.18 命令行规范严格校验：
+                        // scrcpy 1.18 命令行规范严格校验 (必须精确匹配 16 个参数):
                         // 1.version(1.18) 2.logLevel(info) 3.maxSize(必须为8的倍数, 0代表原生)
-                        // 4.bitrate 5.maxFps 6.tunnelForward(true) 7.crop(-) 8.sendFrameMeta(false)
-                        // 9.control(false) 10.displayId(0) 11.showTouches(false) 12.stayAwake(true)
-                        // 13.codecOptions(-) 14.encoderName(-) 15.powerOffScreenOnClose(false)
+                        // 4.bitrate 5.maxFps 6.lockedVideoOrientation(-1) 7.tunnelForward(true)
+                        // 8.crop(-) 9.sendFrameMeta(false) 10.control(false) 11.displayId(0)
+                        // 12.showTouches(false) 13.stayAwake(true) 14.codecOptions(-) 15.encoderName(-) 16.powerOffScreenOnClose(false)
                         val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
-                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps true - false false 0 false true - - false"
+                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false false 0 false true - - false"
                         val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
                         serverStream = sStream
 
@@ -216,13 +216,13 @@ class ScrcpyManager(
 
                         // 轮询等待 server 建立 localabstract:scrcpy 监听
                         var connectedStream: AdbStream? = null
-                        for (i in 0 until 20) {
+                        for (i in 0 until 30) {
                             if (!isStreaming.get()) break
                             try {
                                 connectedStream = adbClient.connection.openStream("localabstract:scrcpy", 1000)
                                 break
                             } catch (_: Exception) {
-                                Thread.sleep(150)
+                                Thread.sleep(100)
                             }
                         }
 
@@ -230,7 +230,20 @@ class ScrcpyManager(
                             activeStream = connectedStream
                             adbStream = activeStream
 
-                            // 读取 68 字节 meta (64字节设备名 + 2字节宽 + 2字节高)
+                            // 握手步骤 1: 读取服务端在接受 videoSocket 连接后写入的 1 字节 dummy 响应 (值为 0)
+                            val dummyByte = activeStream.inputStream.read()
+                            if (dummyByte < 0) {
+                                throw java.io.IOException("EOF reading scrcpy handshake dummy byte")
+                            }
+
+                            // 握手步骤 2: 紧接着连接 controlSocket (scrcpy-server DesktopConnection.open 必须 accept 两次，否则会一直阻塞等待控制通道)
+                            try {
+                                controlStream = adbClient.connection.openStream("localabstract:scrcpy", 2000)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to connect scrcpy control stream: ${e.message}")
+                            }
+
+                            // 握手步骤 3: 读取 68 字节 meta (64字节设备名 + 2字节宽 + 2字节高)
                             val meta = ByteArray(68)
                             var metaRead = 0
                             while (metaRead < 68) {
@@ -265,24 +278,37 @@ class ScrcpyManager(
                     adbStream = activeStream
                 }
 
-                // 3. 初始化本地 H.264 硬件解码器 (低延迟极速模式)
-                val format = MediaFormat.createVideoFormat("video/avc", finalW, finalH).apply {
+                // 3. 初始化本地 H.264 硬件解码器
+                val activeCodec = MediaCodec.createDecoderByType("video/avc")
+                mediaCodec = activeCodec
+
+                // 优先尝试低延迟高刷配置；若机型驱动不支持则平滑降级为基线标准配置
+                val lowLatencyFormat = MediaFormat.createVideoFormat("video/avc", finalW, finalH).apply {
                     setInteger("max-input-size", maxOf(finalW * finalH, 1024 * 1024))
                     setInteger("frame-rate", maxFps)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
-                        setInteger(MediaFormat.KEY_PRIORITY, 0)
+                        try {
+                            setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+                            setInteger(MediaFormat.KEY_PRIORITY, 0)
+                        } catch (_: Exception) {}
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         try {
                             setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
                         } catch (_: Exception) {}
                     }
                 }
 
-                val activeCodec = MediaCodec.createDecoderByType("video/avc")
-                mediaCodec = activeCodec
-                activeCodec.configure(format, surface, null, 0)
+                try {
+                    activeCodec.configure(lowLatencyFormat, surface, null, 0)
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaCodec low-latency configure failed (${e.message}), falling back to safe baseline format")
+                    val baselineFormat = MediaFormat.createVideoFormat("video/avc", finalW, finalH).apply {
+                        setInteger("max-input-size", maxOf(finalW * finalH, 1024 * 1024))
+                        setInteger("frame-rate", minOf(maxFps, 60))
+                    }
+                    activeCodec.configure(baselineFormat, surface, null, 0)
+                }
                 activeCodec.start()
 
                 // 4. 启动解码消费线程 (鲁棒性容错，绝不因单帧异常退圈导致卡死)
@@ -446,11 +472,9 @@ class ScrcpyManager(
                 } else 0
 
                 val isConfig = nalType == 7 || nalType == 8
-                val flags = when (nalType) {
-                    7, 8 -> MediaCodec.BUFFER_FLAG_CODEC_CONFIG // SPS, PPS 参数集配置
-                    5 -> MediaCodec.BUFFER_FLAG_KEY_FRAME // IDR 关键帧
-                    else -> 0
-                }
+                // 注意：MediaCodec.queueInputBuffer 的 flags 严格只支持 BUFFER_FLAG_CODEC_CONFIG 或 0
+                // 严禁传入 BUFFER_FLAG_KEY_FRAME（该标志仅用于 MediaExtractor/Muxer），否则部分 Android 芯片驱动会报 IllegalArgumentException 导致关键帧全丢
+                val flags = if (isConfig) MediaCodec.BUFFER_FLAG_CODEC_CONFIG else 0
 
                 // SPS/PPS 配置包 pts 必须为 0，视频帧单调递增纳秒时间戳
                 val pts = if (isConfig) 0L else (System.nanoTime() / 1000L)
