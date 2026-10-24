@@ -69,7 +69,7 @@ enum class NavPosition {
 }
 
 data class ScrcpyConfig(
-    var maxSize: Int = 1280, // 0 为原画，常见 1920 (1080P), 1280 (720P), 854 (480P)
+    var maxSize: Int = -1, // -1 为自动适配本机屏幕，0 为原画，常见 1920 (1080P), 1280 (720P), 854 (480P)
     var bitRate: Int = 4_000_000, // 码率 (2M, 4M, 8M, 16M)
     var maxFps: Int = 60,
     var turnScreenOff: Boolean = false, // 熄屏运行
@@ -85,10 +85,11 @@ data class ScrcpyOption<T>(
 
 object ScrcpyPresets {
     val RESOLUTION_OPTIONS = listOf(
-        ScrcpyOption("720P (标清推荐，画质流畅均衡)", 1280),
-        ScrcpyOption("1080P (全高清，高清晰度)", 1920),
+        ScrcpyOption("自动适配本机屏幕 (推荐，等比完整容纳)", -1),
+        ScrcpyOption("720P (标清流畅，等比适配)", 1280),
+        ScrcpyOption("1080P (全高清，等比适配)", 1920),
         ScrcpyOption("原画 (原生分辨率，不压缩尺寸)", 0),
-        ScrcpyOption("480P (流畅低延迟，弱网极速)", 854)
+        ScrcpyOption("480P (极速低延迟，等比适配)", 854)
     )
 
     val BITRATE_OPTIONS = listOf(
@@ -108,7 +109,7 @@ object ScrcpyPresets {
 
     fun getResolutionLabel(size: Int): String {
         return RESOLUTION_OPTIONS.find { it.value == size }?.label
-            ?: if (size == 0) "原画" else "${size}P"
+            ?: if (size == 0) "原画" else if (size == -1) "自动适配本机屏幕" else "${size}P"
     }
 
     fun getBitrateLabel(bitrate: Int): String {

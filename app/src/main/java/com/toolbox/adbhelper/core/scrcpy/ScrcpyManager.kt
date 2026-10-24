@@ -59,26 +59,49 @@ class ScrcpyManager(
     }
 
     /**
-     * 计算应用指定 maxSize 后的编码推流分辨率
+     * 根据被控机物理分辨率与本机可用显示区域（如 960x1080），等比例计算推流和渲染目标分辨率，严格保持原始纵横比
+     * 例如被控机 1080x2400，本机 960x1080：
+     * 等比计算后为 486x1080，完整容纳且保持纵横比，绝不拉伸变形
      */
-    fun calculateTargetSize(deviceW: Int, deviceH: Int, maxSize: Int): Pair<Int, Int> {
+    fun calculateTargetSize(
+        deviceW: Int,
+        deviceH: Int,
+        maxSize: Int = -1,
+        localW: Int = 0,
+        localH: Int = 0
+    ): Pair<Int, Int> {
         val safeW = if (deviceW <= 0) 1080 else deviceW
-        val safeH = if (deviceH <= 0) 1920 else deviceH
-        var targetW = safeW
-        var targetH = safeH
+        val safeH = if (deviceH <= 0) 2400 else deviceH
 
+        var targetW = safeW.toFloat()
+        var targetH = safeH.toFloat()
+
+        // 1. 如果提供了本机容器尺寸 (例如 960x1080)，按 Contain (fitCenter) 方式等比限制在容器内
+        if (localW > 0 && localH > 0) {
+            val scaleW = localW.toFloat() / safeW
+            val scaleH = localH.toFloat() / safeH
+            val scale = minOf(scaleW, scaleH)
+            targetW = safeW * scale
+            targetH = safeH * scale
+        }
+
+        // 2. 如果用户指定了具体的 maxSize (长边上限，如 1280、1920、854)，且 maxSize > 0
         if (maxSize > 0) {
-            val major = maxOf(safeW, safeH)
+            val major = maxOf(targetW, targetH)
             if (major > maxSize) {
                 val ratio = maxSize.toFloat() / major
-                targetW = (safeW * ratio).toInt()
-                targetH = (safeH * ratio).toInt()
+                targetW *= ratio
+                targetH *= ratio
             }
         }
-        // H.264 编码与解码器要求宽高必须是偶数（16 或 2 对齐）
-        targetW = (targetW / 2) * 2
-        targetH = (targetH / 2) * 2
-        return Pair(maxOf(targetW, 16), maxOf(targetH, 16))
+
+        // 3. 偶数对齐 (H.264 与视频编解码器硬性要求宽高为 2 或 16 的倍数，最小不低于 16)
+        var finalW = (targetW.toInt() / 2) * 2
+        var finalH = (targetH.toInt() / 2) * 2
+        finalW = maxOf(finalW, 16)
+        finalH = maxOf(finalH, 16)
+
+        return Pair(finalW, finalH)
     }
 
     /**
@@ -125,6 +148,8 @@ class ScrcpyManager(
         config: ScrcpyConfig,
         deviceW: Int,
         deviceH: Int,
+        localW: Int = 0,
+        localH: Int = 0,
         onFirstFrame: () -> Unit = {},
         onError: (String) -> Unit
     ) {
@@ -135,7 +160,7 @@ class ScrcpyManager(
 
         if (isStreaming.getAndSet(true)) return
 
-        val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize)
+        val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize, localW, localH)
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
         val maxFps = if (config.maxFps > 0) config.maxFps else 60
 

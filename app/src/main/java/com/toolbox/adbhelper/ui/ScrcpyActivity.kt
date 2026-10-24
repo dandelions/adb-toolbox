@@ -96,7 +96,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun loadConfig() {
-        config.maxSize = prefs.getInt(KEY_MAX_SIZE, 1280)
+        config.maxSize = prefs.getInt(KEY_MAX_SIZE, -1)
         config.bitRate = prefs.getInt(KEY_BITRATE, 4_000_000)
         val navPosName = prefs.getString(KEY_NAV_POS, NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         config.navPosition = try {
@@ -151,6 +151,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         applyNavPosition(config.navPosition)
         applyFullscreen(config.isFullscreen)
+
+        // 监听容器尺寸变动（如分屏调整、折叠屏展开/合上、横竖屏旋转），动态等比重绘
+        binding.flScreenContainer.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val w = right - left
+            val h = bottom - top
+            val oldW = oldRight - oldLeft
+            val oldH = oldBottom - oldTop
+            if (w > 0 && h > 0 && (w != oldW || h != oldH)) {
+                val manager = scrcpyManager ?: return@addOnLayoutChangeListener
+                val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, w, h)
+                adjustViewAspectRatio(targetW, targetH)
+            }
+        }
     }
 
     private fun toggleDeviceScreen() {
@@ -284,6 +297,42 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private var watchdogJob: Job? = null
 
+    private fun getContainerDimensions(): Pair<Int, Int> {
+        val cw = binding.flScreenContainer.width
+        val ch = binding.flScreenContainer.height
+        if (cw > 0 && ch > 0) return Pair(cw, ch)
+        val dm = resources.displayMetrics
+        return Pair(dm.widthPixels, dm.heightPixels)
+    }
+
+    /**
+     * 保持原始纵横比 (Aspect Ratio) 动态调整 SurfaceView 与 ImageView 的显示尺寸并居中
+     */
+    private fun adjustViewAspectRatio(targetW: Int, targetH: Int) {
+        val (cw, ch) = getContainerDimensions()
+        if (cw <= 0 || ch <= 0 || targetW <= 0 || targetH <= 0) return
+
+        val scale = minOf(cw.toFloat() / targetW, ch.toFloat() / targetH)
+        val viewW = (targetW * scale).toInt().coerceAtLeast(16)
+        val viewH = (targetH * scale).toInt().coerceAtLeast(16)
+
+        val svParams = binding.surfaceView.layoutParams as FrameLayout.LayoutParams
+        if (svParams.width != viewW || svParams.height != viewH) {
+            svParams.width = viewW
+            svParams.height = viewH
+            svParams.gravity = Gravity.CENTER
+            binding.surfaceView.layoutParams = svParams
+        }
+
+        val ivParams = binding.ivScreen.layoutParams as FrameLayout.LayoutParams
+        if (ivParams.width != viewW || ivParams.height != viewH) {
+            ivParams.width = viewW
+            ivParams.height = viewH
+            ivParams.gravity = Gravity.CENTER
+            binding.ivScreen.layoutParams = ivParams
+        }
+    }
+
     private fun startStreaming() {
         stopStreaming()
         binding.surfaceView.visibility = View.VISIBLE
@@ -298,6 +347,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             binding.tvStreamStatus.text = "等待显示窗口就绪..."
             return
         }
+
+        val (cw, ch) = getContainerDimensions()
+        val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
+        adjustViewAspectRatio(targetW, targetH)
 
         var receivedFirstH264Frame = false
         watchdogJob?.cancel()
@@ -317,6 +370,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             config = config,
             deviceW = deviceWidth,
             deviceH = deviceHeight,
+            localW = cw,
+            localH = ch,
             onFirstFrame = {
                 receivedFirstH264Frame = true
                 watchdogJob?.cancel()
@@ -360,7 +415,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
             val manager = scrcpyManager ?: return@launch
-            val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize)
+            val (cw, ch) = getContainerDimensions()
+            val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
+            withContext(Dispatchers.Main) {
+                adjustViewAspectRatio(targetW, targetH)
+            }
+
             var isFirst = true
             var consecutiveFailures = 0
 
