@@ -95,10 +95,11 @@ class ScrcpyManager(
         var targetH = safeH.toFloat()
 
         // 1. 如果提供了本机容器尺寸 (例如 960x1080)，按 Contain (fitCenter) 方式等比限制在容器内
+        // 同时 scale 不超过 1.0f，避免小屏对端被无谓放大推流超过原生尺寸
         if (localW > 0 && localH > 0) {
             val scaleW = localW.toFloat() / safeW
             val scaleH = localH.toFloat() / safeH
-            val scale = minOf(scaleW, scaleH)
+            val scale = minOf(1.0f, scaleW, scaleH)
             targetW = safeW * scale
             targetH = safeH * scale
         }
@@ -198,7 +199,11 @@ class ScrcpyManager(
                         // 4.bitrate 5.maxFps 6.lockedVideoOrientation(-1) 7.tunnelForward(true)
                         // 8.crop(-) 9.sendFrameMeta(false) 10.control(true:开启控制通道以支持无缝熄屏) 11.displayId(0)
                         // 12.showTouches(false) 13.stayAwake(true) 14.codecOptions(-) 15.encoderName(-) 16.powerOffScreenOnClose(false)
-                        val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
+                        val safeMaxSize = when {
+                            config.maxSize > 0 -> (config.maxSize / 8) * 8
+                            config.maxSize == -1 -> (maxOf(targetW, targetH) / 8) * 8
+                            else -> 0
+                        }
                         val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false true 0 false true - - false"
                         val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
                         serverStream = sStream

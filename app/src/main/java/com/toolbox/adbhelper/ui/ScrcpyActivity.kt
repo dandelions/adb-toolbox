@@ -36,8 +36,20 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var prefs: SharedPreferences
     private val config = ScrcpyConfig()
 
-    private var deviceWidth = 1080
-    private var deviceHeight = 2400
+    private var physicalWidth = 1080
+    private var physicalHeight = 2400
+    private var videoWidth = 1080
+    private var videoHeight = 2400
+
+    /**
+     * 根据当前视频画面横竖屏方向，获取被控端当前方向下的真实物理屏幕宽高
+     */
+    private fun getCurrentDeviceDimensions(): Pair<Int, Int> {
+        val isLandscape = videoWidth > videoHeight
+        val devW = if (isLandscape) maxOf(physicalWidth, physicalHeight) else minOf(physicalWidth, physicalHeight)
+        val devH = if (isLandscape) minOf(physicalWidth, physicalHeight) else maxOf(physicalWidth, physicalHeight)
+        return Pair(devW, devH)
+    }
 
     private var touchDownX = 0f
     private var touchDownY = 0f
@@ -85,8 +97,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             scrcpyManager?.turnScreenOn()
 
             val (w, h) = scrcpyManager?.getDeviceResolution() ?: Pair(1080, 2400)
-            deviceWidth = w
-            deviceHeight = h
+            physicalWidth = w
+            physicalHeight = h
+            videoWidth = w
+            videoHeight = h
 
             withContext(Dispatchers.Main) {
                 if (surfaceCreated && scrcpyManager?.isStreamingNow() != true) {
@@ -173,8 +187,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val oldW = oldRight - oldLeft
             val oldH = oldBottom - oldTop
             if (w > 0 && h > 0 && (w != oldW || h != oldH)) {
-                val manager = scrcpyManager ?: return@addOnLayoutChangeListener
-                val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, w, h)
+                val (curDevW, curDevH) = getCurrentDeviceDimensions()
+                val (targetW, targetH) = manager.calculateTargetSize(curDevW, curDevH, config.maxSize, w, h)
                 adjustViewAspectRatio(targetW, targetH)
             }
         }
@@ -253,13 +267,36 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.navBarWrapper.layoutParams = wrapperParams
     }
 
+    private fun getMappedDeviceCoords(touchX: Float, touchY: Float, view: View): Pair<Int, Int>? {
+        val (curDevW, curDevH) = getCurrentDeviceDimensions()
+        if (curDevW <= 0 || curDevH <= 0) return null
+
+        val (normX, normY) = if (view.id == binding.flScreenContainer.id) {
+            val activeChild = if (binding.surfaceView.visibility == View.VISIBLE) binding.surfaceView else binding.ivScreen
+            val childW = activeChild.width.toFloat()
+            val childH = activeChild.height.toFloat()
+            if (childW <= 0 || childH <= 0) return null
+            val offsetX = (view.width - childW) / 2f
+            val offsetY = (view.height - childH) / 2f
+            val clampedX = (touchX - offsetX).coerceIn(0f, childW)
+            val clampedY = (touchY - offsetY).coerceIn(0f, childH)
+            Pair(clampedX / childW, clampedY / childH)
+        } else {
+            val w = view.width.toFloat()
+            val h = view.height.toFloat()
+            if (w <= 0 || h <= 0) return null
+            Pair((touchX / w).coerceIn(0f, 1f), (touchY / h).coerceIn(0f, 1f))
+        }
+
+        val targetX = (normX * curDevW).toInt().coerceIn(0, curDevW - 1)
+        val targetY = (normY * curDevH).toInt().coerceIn(0, curDevH - 1)
+        return Pair(targetX, targetY)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun initTouchControl() {
         val touchListener = View.OnTouchListener { v, event ->
             val manager = scrcpyManager ?: return@OnTouchListener false
-            val viewWidth = v.width
-            val viewHeight = v.height
-            if (viewWidth <= 0 || viewHeight <= 0) return@OnTouchListener false
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -275,10 +312,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     val dx = upX - touchDownX
                     val dy = upY - touchDownY
 
-                    val targetDownX = (touchDownX / viewWidth * deviceWidth).toInt().coerceIn(0, deviceWidth)
-                    val targetDownY = (touchDownY / viewHeight * deviceHeight).toInt().coerceIn(0, deviceHeight)
-                    val targetUpX = (upX / viewWidth * deviceWidth).toInt().coerceIn(0, deviceWidth)
-                    val targetUpY = (upY / viewHeight * deviceHeight).toInt().coerceIn(0, deviceHeight)
+                    val downCoords = getMappedDeviceCoords(touchDownX, touchDownY, v) ?: return@OnTouchListener false
+                    val upCoords = getMappedDeviceCoords(upX, upY, v) ?: return@OnTouchListener false
+
+                    val targetDownX = downCoords.first
+                    val targetDownY = downCoords.second
+                    val targetUpX = upCoords.first
+                    val targetUpY = upCoords.second
 
                     lifecycleScope.launch(Dispatchers.IO) {
                         val distance = Math.hypot(dx.toDouble(), dy.toDouble())
@@ -303,11 +343,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         binding.surfaceView.setOnTouchListener(touchListener)
         binding.ivScreen.setOnTouchListener(touchListener)
+        binding.flScreenContainer.setOnTouchListener(touchListener)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         surfaceCreated = true
-        if (deviceWidth > 0 && deviceHeight > 0 && scrcpyManager?.isStreamingNow() != true) {
+        if (physicalWidth > 0 && physicalHeight > 0 && scrcpyManager?.isStreamingNow() != true) {
             startStreaming()
         }
     }
@@ -401,7 +442,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         val (cw, ch) = getContainerDimensions()
-        val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
+        val (curDevW, curDevH) = getCurrentDeviceDimensions()
+        val (targetW, targetH) = manager.calculateTargetSize(curDevW, curDevH, config.maxSize, cw, ch)
         adjustViewAspectRatio(targetW, targetH)
 
         var receivedFirstH264Frame = false
@@ -421,17 +463,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         manager.startH264Stream(
             surface = surface,
             config = config,
-            deviceW = deviceWidth,
-            deviceH = deviceHeight,
+            deviceW = curDevW,
+            deviceH = curDevH,
             localW = cw,
             localH = ch,
             onFirstFrame = { w, h ->
                 receivedFirstH264Frame = true
                 watchdogJob?.cancel()
                 runOnUiThread {
-                    if (w > 0 && h > 0 && (deviceWidth != w || deviceHeight != h)) {
-                        deviceWidth = w
-                        deviceHeight = h
+                    if (w > 0 && h > 0 && (videoWidth != w || videoHeight != h)) {
+                        videoWidth = w
+                        videoHeight = h
                         adjustViewAspectRatio(w, h)
                     }
                     binding.pbLoading.visibility = View.GONE
@@ -497,7 +539,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
             val mgr = scrcpyManager ?: return@launch
             val (cw, ch) = getContainerDimensions()
-            val (targetW, targetH) = mgr.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize, cw, ch)
+            val (curDevW, curDevH) = getCurrentDeviceDimensions()
+            val (targetW, targetH) = mgr.calculateTargetSize(curDevW, curDevH, config.maxSize, cw, ch)
             withContext(Dispatchers.Main) {
                 adjustViewAspectRatio(targetW, targetH)
             }
@@ -521,10 +564,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
 
                     withContext(Dispatchers.Main) {
-                        if (deviceWidth != frame.width || deviceHeight != frame.height) {
-                            deviceWidth = frame.width
-                            deviceHeight = frame.height
-                            adjustViewAspectRatio(deviceWidth, deviceHeight)
+                        if (videoWidth != frame.width || videoHeight != frame.height) {
+                            videoWidth = frame.width
+                            videoHeight = frame.height
+                            adjustViewAspectRatio(videoWidth, videoHeight)
                         }
                         binding.ivScreen.setImageBitmap(frame)
                         updateDiagBar(
