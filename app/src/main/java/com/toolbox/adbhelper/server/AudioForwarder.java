@@ -53,6 +53,12 @@ public class AudioForwarder {
 
         String mode = (args != null && args.length > 0) ? args[0].toLowerCase() : "auto";
         System.out.println("[AudioForwarder] Initializing: mode=" + mode + ", Android " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")");
+
+        // 自动清理系统此前可能残留的堆转储广播与弹窗请求，防止堆积
+        try {
+            Runtime.getRuntime().exec(new String[]{"am", "broadcast", "-a", "com.android.shell.action.DELETE_HEAP_DUMP"});
+        } catch (Throwable ignored) {}
+
         applyWorkarounds();
 
         LocalServerSocket serverSocket = null;
@@ -268,66 +274,13 @@ public class AudioForwarder {
     }
 
     /**
-     * 在 Android 11 上启动录音：配合 Shell 前台 Activity 绕过系统后台录音限制
+     * 启动录音：直接启动并校验录制状态，严禁拉起 HeapDumpActivity 导致界面弹窗
      */
     private static void startRecordingWithWorkarounds(AudioRecord recorder) throws Exception {
-        if (Build.VERSION.SDK_INT == 30) {
-            System.out.println("[AudioForwarder] Android 11 detected: triggering foreground workaround...");
-            startWorkaroundAndroid11();
-            boolean success = false;
-            Throwable lastErr = null;
-
-            // 循环尝试启动录音，给前台 Activity 切换留出充足时间 (最多等待 8 次，共约 1 秒)
-            for (int i = 0; i < 8; i++) {
-                try {
-                    Thread.sleep(120);
-                    recorder.startRecording();
-                    if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                        success = true;
-                        System.out.println("[AudioForwarder] Android 11 recording successfully started (attempt " + (i + 1) + ")");
-                        break;
-                    }
-                } catch (Throwable t) {
-                    lastErr = t;
-                }
-            }
-
-            // 温和关闭前台 Activity（发送 BACK 键，切忌使用 am force-stop 杀死自己）
-            stopWorkaroundAndroid11();
-
-            if (!success) {
-                if (lastErr != null) {
-                    throw new RuntimeException("Android 11 startRecording failed: " + lastErr.getMessage(), lastErr);
-                } else {
-                    throw new RuntimeException("Android 11 recorder state is not RECORDING (" + recorder.getRecordingState() + ")");
-                }
-            }
-        } else {
-            recorder.startRecording();
-            if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
-                throw new RuntimeException("Recorder failed to start, state: " + recorder.getRecordingState());
-            }
+        recorder.startRecording();
+        if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+            throw new RuntimeException("Recorder failed to start, state: " + recorder.getRecordingState());
         }
-    }
-
-    private static void startWorkaroundAndroid11() {
-        try {
-            // 通过 am 命令行拉起 HeapDumpActivity
-            Runtime.getRuntime().exec(new String[]{
-                "am", "start", "-n", PACKAGE_NAME + "/.HeapDumpActivity"
-            });
-        } catch (Throwable t) {
-            System.err.println("[AudioForwarder] startWorkaroundAndroid11 exec failed: " + t.getMessage());
-        }
-    }
-
-    private static void stopWorkaroundAndroid11() {
-        try {
-            // 通过发送返回键关闭覆盖层，切勿执行 am force-stop，以免将自身 shell 进程 kill 掉
-            Runtime.getRuntime().exec(new String[]{
-                "input", "keyevent", "4"
-            });
-        } catch (Throwable ignored) {}
     }
 
     /**

@@ -63,10 +63,13 @@ class AudioStreamPlayer(private val context: Context) {
             // 1. 在对端启动 AudioForwarder 服务进程
             onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
 
-            // 预先唤醒屏幕并执行 Android 11 前台伪装，确保 UID 2000 录音权限生效
+            // 唤醒屏幕并确保 UID 2000 录音权限，同时主动清理残留的堆转储请求与文件
             try {
                 adbClient.executeShell("input keyevent 224") // 唤醒屏幕
-                adbClient.executeShell("am start -n com.android.shell/.HeapDumpActivity 2>/dev/null")
+                adbClient.executeShell("cmd appops set 2000 RECORD_AUDIO allow 2>/dev/null")
+                adbClient.executeShell("cmd appops set com.android.shell RECORD_AUDIO allow 2>/dev/null")
+                adbClient.executeShell("am broadcast -a com.android.shell.action.DELETE_HEAP_DUMP 2>/dev/null")
+                adbClient.executeShell("rm -f /data/local/tmp/*.hprof /data/local/tmp/heapdump* 2>/dev/null")
             } catch (_: Exception) {}
 
             val modeArg = when (audioSource) {
