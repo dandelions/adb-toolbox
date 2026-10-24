@@ -168,7 +168,7 @@ class ScrcpyManager(
         deviceH: Int,
         localW: Int = 0,
         localH: Int = 0,
-        onFirstFrame: () -> Unit = {},
+        onFirstFrame: (width: Int, height: Int) -> Unit = { _, _ -> },
         onError: (String) -> Unit
     ) {
         if (!surface.isValid) {
@@ -211,17 +211,6 @@ class ScrcpyManager(
                         if (connectedStream != null) {
                             activeStream = connectedStream
                             adbStream = activeStream
-
-                            // 连接辅助 control socket 保持服务端握手完整
-                            try {
-                                controlStream = adbClient.connection.openStream("localabstract:scrcpy", 1500)
-                            } catch (_: Exception) {}
-
-                            // 读取 1 字节 dummy 握手
-                            val dummy = activeStream.inputStream.read()
-                            if (dummy != 0) {
-                                throw java.io.IOException("Invalid scrcpy server handshake: $dummy")
-                            }
 
                             // 读取 68 字节 meta (64字节设备名 + 2字节宽 + 2字节高)
                             val meta = ByteArray(68)
@@ -282,7 +271,7 @@ class ScrcpyManager(
                             if (outIndex >= 0) {
                                 if (!firstFrameRendered) {
                                     firstFrameRendered = true
-                                    onFirstFrame()
+                                    onFirstFrame(finalW, finalH)
                                 }
                                 activeCodec.releaseOutputBuffer(outIndex, true)
                             }
@@ -599,15 +588,9 @@ class ScrcpyManager(
     }
 
     private fun scaleBitmapIfNeeded(bitmap: Bitmap, targetW: Int, targetH: Int): Bitmap {
-        return if (targetW > 0 && targetH > 0 && (bitmap.width != targetW || bitmap.height != targetH)) {
-            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
-            if (scaled != bitmap) {
-                bitmap.recycle()
-            }
-            scaled
-        } else {
-            bitmap
-        }
+        // 严格保持原始图像的长宽比，严禁破坏比例硬缩放拉伸导致画面变形！
+        // ImageView 的 FIT_CENTER 会由 GPU 硬件加速自动等比居中渲染，彻底省去 CPU 重采样开销
+        return bitmap
     }
 
     private fun readStreamBytes(command: String, timeoutMs: Long = 3500): ByteArray {

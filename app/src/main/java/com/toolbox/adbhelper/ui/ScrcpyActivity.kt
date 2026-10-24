@@ -285,10 +285,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     val targetUpY = (upY / viewHeight * deviceHeight).toInt().coerceIn(0, deviceHeight)
 
                     lifecycleScope.launch(Dispatchers.IO) {
-                        if (Math.hypot(dx.toDouble(), dy.toDouble()) < 25) {
-                            manager.sendTap(targetDownX, targetDownY)
+                        val distance = Math.hypot(dx.toDouble(), dy.toDouble())
+                        if (distance < 25) {
+                            if (duration > 500) {
+                                // 长按：原地按压
+                                manager.sendSwipe(targetDownX, targetDownY, targetDownX, targetDownY, duration.toInt().coerceAtMost(1000))
+                            } else {
+                                manager.sendTap(targetDownX, targetDownY)
+                            }
                         } else {
-                            manager.sendSwipe(targetDownX, targetDownY, targetUpX, targetUpY, duration.toInt().coerceAtLeast(100))
+                            // 极速滑动：限制在 60ms ~ 160ms，消除被控机缓慢模拟造成的迟滞
+                            val fastDuration = minOf(duration.toInt(), 160).coerceAtLeast(60)
+                            manager.sendSwipe(targetDownX, targetDownY, targetUpX, targetUpY, fastDuration)
                         }
                     }
                     true
@@ -424,13 +432,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             deviceH = deviceHeight,
             localW = cw,
             localH = ch,
-            onFirstFrame = {
+            onFirstFrame = { w, h ->
                 receivedFirstH264Frame = true
                 watchdogJob?.cancel()
                 runOnUiThread {
+                    if (w > 0 && h > 0 && (deviceWidth != w || deviceHeight != h)) {
+                        deviceWidth = w
+                        deviceHeight = h
+                        adjustViewAspectRatio(w, h)
+                    }
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.GONE
-                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | 画面正常输出中")
+                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} 60fps")
                 }
             },
             onError = { errMsg ->
@@ -508,6 +521,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
 
                     withContext(Dispatchers.Main) {
+                        if (deviceWidth != frame.width || deviceHeight != frame.height) {
+                            deviceWidth = frame.width
+                            deviceHeight = frame.height
+                            adjustViewAspectRatio(deviceWidth, deviceHeight)
+                        }
                         binding.ivScreen.setImageBitmap(frame)
                         updateDiagBar(
                             indicatorColor = "#4CAF50",
