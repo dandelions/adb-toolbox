@@ -67,6 +67,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_NAV_POS = "scrcpy_nav_pos"
         private const val KEY_FULLSCREEN = "scrcpy_fullscreen"
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
+        private const val KEY_AUDIO_FORWARD = "scrcpy_audio_forward"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -122,6 +123,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
+        config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, false)
     }
 
     private fun saveConfig() {
@@ -132,6 +134,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .putString(KEY_NAV_POS, config.navPosition.name)
             .putBoolean(KEY_FULLSCREEN, config.isFullscreen)
             .putBoolean(KEY_SCREEN_OFF, config.turnScreenOff)
+            .putBoolean(KEY_AUDIO_FORWARD, config.enableAudio)
             .apply()
     }
 
@@ -669,9 +672,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // 5. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
+        dialogBinding.switchAudioForward.isChecked = config.enableAudio
 
         // 应用按钮
         dialogBinding.btnApplySettings.setOnClickListener {
+            val needRestartVideo = (config.maxSize != selectedSize ||
+                    config.bitRate != selectedBitrate ||
+                    config.maxFps != selectedFps)
+
             config.maxSize = selectedSize
             config.bitRate = selectedBitrate
             config.maxFps = selectedFps
@@ -681,15 +689,28 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             config.isFullscreen = dialogBinding.switchFullscreen.isChecked
             config.turnScreenOff = dialogBinding.switchScreenOff.isChecked
 
+            val oldAudio = config.enableAudio
+            config.enableAudio = dialogBinding.switchAudioForward.isChecked
+
             saveConfig()
             applyNavPosition(config.navPosition)
             if (oldFullscreen != config.isFullscreen) {
                 applyFullscreen(config.isFullscreen)
             }
 
+            if (oldAudio != config.enableAudio) {
+                scrcpyManager?.setAudioEnabled(config.enableAudio)
+            }
+
             dialog.dismiss()
-            Toast.makeText(this, "投屏参数已更新，正在重载画面...", Toast.LENGTH_SHORT).show()
-            startStreaming()
+
+            if (needRestartVideo) {
+                Toast.makeText(this, "投屏参数已更新，正在重载画面...", Toast.LENGTH_SHORT).show()
+                startStreaming()
+            } else {
+                val audioMsg = if (config.enableAudio) "声音传输已开启" else "声音传输已关闭"
+                Toast.makeText(this, "设置已生效 ($audioMsg)", Toast.LENGTH_SHORT).show()
+            }
         }
 
         dialog.show()

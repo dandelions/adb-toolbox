@@ -75,7 +75,8 @@ data class ScrcpyConfig(
     var turnScreenOff: Boolean = false, // 熄屏运行
     var stayAwake: Boolean = true,
     var navPosition: NavPosition = NavPosition.BOTTOM,
-    var isFullscreen: Boolean = false
+    var isFullscreen: Boolean = false,
+    var enableAudio: Boolean = false // 声音传输 (音频转发)
 ) : Serializable
 
 data class ScrcpyOption<T>(

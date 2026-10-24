@@ -33,6 +33,7 @@ class ScrcpyManager(
     private var adbStream: AdbStream? = null
     private var controlStream: AdbStream? = null
     private var mediaCodec: MediaCodec? = null
+    private var audioPlayer: AudioStreamPlayer? = null
 
     // 缓存最快且可用的截屏方式 (1: exec, 2: base64, 3: temp_file)
     @Volatile
@@ -195,6 +196,20 @@ class ScrcpyManager(
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize, localW, localH)
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
         val maxFps = if (config.maxFps > 0) config.maxFps else 60
+
+        if (config.enableAudio) {
+            Thread({
+                try {
+                    val player = AudioStreamPlayer(context)
+                    audioPlayer = player
+                    kotlinx.coroutines.runBlocking {
+                        player.start(adbClient)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Audio player launch error: ${e.message}")
+                }
+            }, "AudioStartThread").start()
+        }
 
         streamThread = Thread({
             var firstFrameRendered = false
@@ -518,6 +533,11 @@ class ScrcpyManager(
         } catch (_: Exception) {}
         streamThread = null
 
+        try {
+            audioPlayer?.stop()
+        } catch (_: Exception) {}
+        audioPlayer = null
+
         // 2. 温和关闭各 ADB 通道流，顺序为视频流 -> 控制流 -> server进程流
         try {
             adbStream?.close()
@@ -533,6 +553,29 @@ class ScrcpyManager(
             serverStream?.close()
         } catch (_: Exception) {}
         serverStream = null
+    }
+
+    /**
+     * 动态开启或关闭音频传输
+     */
+    fun setAudioEnabled(enabled: Boolean) {
+        if (enabled) {
+            if (audioPlayer?.isPlaying() == true) return
+            Thread({
+                try {
+                    val player = AudioStreamPlayer(context)
+                    audioPlayer = player
+                    kotlinx.coroutines.runBlocking {
+                        player.start(adbClient)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Dynamic audio start failed: ${e.message}")
+                }
+            }, "DynamicAudioThread").start()
+        } else {
+            audioPlayer?.stop()
+            audioPlayer = null
+        }
     }
 
     /**

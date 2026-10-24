@@ -160,6 +160,14 @@
             android:text="熄屏操作 (投屏时关闭对端屏幕以省电)"
             android:textColor="@color/text_primary" />
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchAudioForward"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="声音传输 (对端音频转发至本机播放)"
+            android:textColor="@color/text_primary" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnApplySettings"
             android:layout_width="match_parent"
