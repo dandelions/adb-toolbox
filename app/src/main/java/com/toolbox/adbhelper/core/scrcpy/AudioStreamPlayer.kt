@@ -56,6 +56,13 @@ class AudioStreamPlayer(private val context: Context) {
 
             // 1. 在对端启动 AudioForwarder 服务进程
             onStatus?.invoke("正在对端启动系统音频捕获服务...", false)
+
+            // 预先唤醒屏幕并执行 Android 11 前台伪装，确保 UID 2000 录音权限生效
+            try {
+                adbClient.executeShell("input keyevent 224") // 唤醒屏幕
+                adbClient.executeShell("am start -n com.android.shell/.HeapDumpActivity 2>/dev/null")
+            } catch (_: Exception) {}
+
             val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder"
             serverStream = try {
                 adbClient.connection.openStream("shell:$serverCmd", 5000)
@@ -77,8 +84,14 @@ class AudioStreamPlayer(private val context: Context) {
                             val line = reader.readLine() ?: break
                             Log.d(TAG, "[AudioForwarder] $line")
                             if (line.contains("AUDIO_RECORDING_STARTED")) {
-                                onStatus?.invoke("对端音频录制已就绪，正在流式传输", false)
-                            } else if (line.contains("ERROR:") || line.contains("failed") || line.contains("Permission Denial")) {
+                                onStatus?.invoke("音频录制已启动，正在流式传输", false)
+                            } else if (line.contains("Selected strategy: AudioPolicy")) {
+                                onStatus?.invoke("音频录制：系统内录 (AudioPolicy)", false)
+                            } else if (line.contains("Selected strategy:")) {
+                                onStatus?.invoke("音频录制：系统内录 (REMOTE_SUBMIX)", false)
+                            } else if (line.contains("Selected fallback:")) {
+                                onStatus?.invoke("音频录制：环境音采集模式", false)
+                            } else if (line.contains("ERROR:") || line.contains("Permission Denial") || line.contains("failed with code")) {
                                 onStatus?.invoke("对端音频捕获提示: $line", true)
                             }
                         }
@@ -238,8 +251,8 @@ class AudioStreamPlayer(private val context: Context) {
                     sync.close()
                     temp.delete()
                 }
-                client.executeShell("chmod 644 /data/local/tmp/app-helper.jar")
-                Log.i(TAG, "app-helper.jar 推送完成并赋予读取权限")
+                client.executeShell("chmod 755 /data/local/tmp/app-helper.jar")
+                Log.i(TAG, "app-helper.jar 推送完成并赋予读取执行权限")
             }
         } catch (e: Exception) {
             Log.w(TAG, "推送 app-helper.jar 异常: ${e.message}")

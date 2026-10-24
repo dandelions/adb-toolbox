@@ -75,9 +75,20 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding = ActivityScrcpyBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val client = DeviceManager.adbClient
-        if (client == null) {
-            Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+        var client = DeviceManager.adbClient
+        if (client == null || !client.isConnected) {
+            // 给瞬时状态切换预留短暂的缓冲时间
+            for (i in 0 until 3) {
+                if (DeviceManager.adbClient?.isConnected == true) {
+                    client = DeviceManager.adbClient
+                    break
+                }
+                Thread.sleep(150)
+            }
+        }
+
+        if (client == null || !client.isConnected) {
+            Toast.makeText(this, "ADB 设备未连接或已断开", Toast.LENGTH_SHORT).show()
             finish()
             return
         }

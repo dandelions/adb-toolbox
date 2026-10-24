@@ -3,6 +3,7 @@ package com.toolbox.adbhelper.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
@@ -123,6 +124,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var lastLoadedDeviceId: String? = null
+
     private fun refreshDeviceState() {
         val dev = DeviceManager.currentDevice
         val client = DeviceManager.adbClient
@@ -132,18 +135,21 @@ class MainActivity : AppCompatActivity() {
             binding.btnConnect.text = "断开"
             binding.cardDeviceInfo.visibility = View.VISIBLE
 
-            lifecycleScope.launch {
-                try {
-                    val info = withContext(Dispatchers.IO) { client.getDeviceInfo() }
-                    updateDeviceInfoUI(info)
-                } catch (_: Exception) {
-                    if (isActive) {
-                        DeviceManager.disconnect()
-                        refreshDeviceState()
+            // 如果已经加载过当前设备信息，无需重复发起多条 shell 命令，避免 socket 竞争与阻塞
+            if (lastLoadedDeviceId != dev.id) {
+                lifecycleScope.launch {
+                    try {
+                        val info = withContext(Dispatchers.IO) { client.getDeviceInfo() }
+                        lastLoadedDeviceId = dev.id
+                        updateDeviceInfoUI(info)
+                    } catch (e: Exception) {
+                        Log.w("MainActivity", "读取设备详细信息失败: ${e.message}")
+                        // 注意：获取设备信息失败绝不能粗暴断开 ADB 全局连接！保持在线状态即可
                     }
                 }
             }
         } else {
+            lastLoadedDeviceId = null
             if (dev != null || client != null) {
                 DeviceManager.disconnect()
             }
