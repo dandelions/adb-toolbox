@@ -83,6 +83,7 @@ class ScrcpyManager(
         config: ScrcpyConfig,
         deviceW: Int,
         deviceH: Int,
+        onFirstFrame: () -> Unit = {},
         onError: (String) -> Unit
     ) {
         if (!surface.isValid) {
@@ -96,6 +97,7 @@ class ScrcpyManager(
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
 
         streamThread = Thread({
+            var firstFrameRendered = false
             try {
                 // 1. 初始化本地 H.264 硬件解码器
                 // 解码器输出到 Surface 时无需也不可设置 COLOR_FormatSurface (仅供编码器使用)
@@ -113,10 +115,14 @@ class ScrcpyManager(
                 activeCodec.configure(format, surface, null, 0)
                 activeCodec.start()
 
-                // 2. 在被控端启动低延迟 screenrecord
+                // 2. 在被控端启动低延迟 screenrecord (优先通过 exec: 无 PTY 字符转换)
                 // --output-format=h264 输出到 stdout 管道
-                val command = "shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -"
-                val activeStream = adbClient.connection.openStream(command)
+                val execCommand = "exec:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -"
+                val activeStream = try {
+                    adbClient.connection.openStream(execCommand, 3000)
+                } catch (_: Exception) {
+                    adbClient.connection.openStream("shell:screenrecord --output-format=h264 --size ${targetW}x${targetH} --bit-rate $bitrate --time-limit 180 -", 3000)
+                }
                 adbStream = activeStream
 
                 // 3. 启动解码消费线程
@@ -126,6 +132,10 @@ class ScrcpyManager(
                         try {
                             val outIndex = activeCodec.dequeueOutputBuffer(info, 10000)
                             if (outIndex >= 0) {
+                                if (!firstFrameRendered) {
+                                    firstFrameRendered = true
+                                    onFirstFrame()
+                                }
                                 // 立即渲染到 Surface
                                 activeCodec.releaseOutputBuffer(outIndex, true)
                             }
@@ -143,7 +153,7 @@ class ScrcpyManager(
                 val inputStream = activeStream.inputStream
                 val framesFed = feedH264ToCodec(inputStream, activeCodec)
 
-                if (isStreaming.get() && framesFed == 0) {
+                if (isStreaming.get() && (framesFed == 0 || !firstFrameRendered)) {
                     onError("对端未能输出有效 H.264 视频流，正切换为兼容模式...")
                 }
 
@@ -234,6 +244,7 @@ class ScrcpyManager(
     }
 
     private fun feedOneNal(codec: MediaCodec, data: ByteArray, offset: Int, size: Int) {
+        if (size <= 4) return
         try {
             val inIndex = codec.dequeueInputBuffer(10000)
             if (inIndex >= 0) {
@@ -249,7 +260,27 @@ class ScrcpyManager(
                     return
                 }
                 inBuffer.put(data, offset, size)
-                codec.queueInputBuffer(inIndex, 0, size, System.nanoTime() / 1000, 0)
+
+                // 解析 NAL 单元起始码偏移以读取 nal_type
+                val nalHeaderPos = if (size > 3 && data[offset] == 0.toByte() && data[offset + 1] == 0.toByte() && data[offset + 2] == 1.toByte()) {
+                    offset + 3
+                } else if (size > 4 && data[offset] == 0.toByte() && data[offset + 1] == 0.toByte() && data[offset + 2] == 0.toByte() && data[offset + 3] == 1.toByte()) {
+                    offset + 4
+                } else {
+                    offset
+                }
+
+                val nalType = if (nalHeaderPos < offset + size) {
+                    data[nalHeaderPos].toInt() and 0x1F
+                } else 0
+
+                val flags = when (nalType) {
+                    7, 8 -> MediaCodec.BUFFER_FLAG_CODEC_CONFIG // SPS, PPS 参数集配置
+                    5 -> MediaCodec.BUFFER_FLAG_KEY_FRAME // IDR 关键帧
+                    else -> 0
+                }
+
+                codec.queueInputBuffer(inIndex, 0, size, System.nanoTime() / 1000, flags)
             }
         } catch (e: Exception) {
             Log.w(TAG, "feedOneNal error: ${e.message}")
@@ -279,32 +310,102 @@ class ScrcpyManager(
     }
 
     /**
-     * 兼容模式截帧（单帧拉取）
+     * 兼容模式截帧（单帧拉取，支持 exec 和 shell 自动修正）
      */
     suspend fun captureFrame(targetW: Int = 0, targetH: Int = 0): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            val stream = adbClient.connection.openStream("shell:screencap -p")
-            val baos = ByteArrayOutputStream()
-            while (true) {
-                val chunk = stream.read() ?: break
-                baos.write(chunk)
+            // 优先通过 exec: 获取干净无 PTY 污染的 PNG 数据，失败时降级到 shell:
+            var rawBytes = readStreamBytes("exec:screencap -p")
+            if (rawBytes.isEmpty()) {
+                rawBytes = readStreamBytes("shell:screencap -p")
             }
-            stream.close()
-            val bytes = baos.toByteArray()
-            if (bytes.isNotEmpty()) {
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap != null && targetW > 0 && targetH > 0 && (bitmap.width != targetW || bitmap.height != targetH)) {
-                    val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
-                    bitmap.recycle()
-                    scaled
-                } else {
-                    bitmap
-                }
-            } else null
+            if (rawBytes.isEmpty()) return@withContext null
+
+            // 自动修正 PTY 可能引入的 0x0D 0x0A 损坏
+            val cleanBytes = sanitizePngBytes(rawBytes)
+            val pngOffset = findPngHeader(cleanBytes)
+            if (pngOffset < 0) {
+                Log.w(TAG, "No valid PNG header found in screencap output")
+                return@withContext null
+            }
+
+            val bitmap = BitmapFactory.decodeByteArray(cleanBytes, pngOffset, cleanBytes.size - pngOffset)
+            if (bitmap != null && targetW > 0 && targetH > 0 && (bitmap.width != targetW || bitmap.height != targetH)) {
+                val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+                bitmap.recycle()
+                scaled
+            } else {
+                bitmap
+            }
         } catch (e: Exception) {
             Log.e(TAG, "captureFrame failed", e)
             null
         }
+    }
+
+    private fun readStreamBytes(command: String, timeoutMs: Long = 4000): ByteArray {
+        val stream = try {
+            adbClient.connection.openStream(command, timeoutMs)
+        } catch (_: Exception) {
+            return ByteArray(0)
+        }
+        val baos = ByteArrayOutputStream(512 * 1024)
+        try {
+            while (true) {
+                val chunk = stream.read() ?: break
+                baos.write(chunk)
+            }
+        } catch (_: Exception) {
+        } finally {
+            try { stream.close() } catch (_: Exception) {}
+        }
+        return baos.toByteArray()
+    }
+
+    private fun sanitizePngBytes(bytes: ByteArray): ByteArray {
+        if (bytes.size < 8) return bytes
+        // 损坏的 PNG (经过 PTY 0A -> 0D 0A 转换): 89 50 4E 47 0D 0D 0A 1A 0D 0A
+        val isCrlfCorrupted = bytes.size >= 10 &&
+                bytes[0] == 0x89.toByte() &&
+                bytes[1] == 0x50.toByte() &&
+                bytes[2] == 0x4E.toByte() &&
+                bytes[3] == 0x47.toByte() &&
+                bytes[4] == 0x0D.toByte() &&
+                bytes[5] == 0x0D.toByte() &&
+                bytes[6] == 0x0A.toByte()
+
+        if (!isCrlfCorrupted) return bytes
+
+        // 将所有 0x0D 0x0A 还原为 0x0A
+        val out = ByteArrayOutputStream(bytes.size)
+        var i = 0
+        while (i < bytes.size) {
+            if (i < bytes.size - 1 && bytes[i] == 0x0D.toByte() && bytes[i + 1] == 0x0A.toByte()) {
+                out.write(0x0A)
+                i += 2
+            } else {
+                out.write(bytes[i].toInt() and 0xFF)
+                i++
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun findPngHeader(data: ByteArray): Int {
+        for (i in 0 until data.size - 7) {
+            if (data[i] == 0x89.toByte() &&
+                data[i + 1] == 0x50.toByte() &&
+                data[i + 2] == 0x4E.toByte() &&
+                data[i + 3] == 0x47.toByte() &&
+                data[i + 4] == 0x0D.toByte() &&
+                data[i + 5] == 0x0A.toByte() &&
+                data[i + 6] == 0x1A.toByte() &&
+                data[i + 7] == 0x0A.toByte()
+            ) {
+                return i
+            }
+        }
+        return -1
     }
 
     // ====== 熄屏控制与电源管理 ======

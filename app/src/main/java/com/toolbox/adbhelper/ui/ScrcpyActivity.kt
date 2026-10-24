@@ -282,6 +282,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         stopStreaming()
     }
 
+    private var watchdogJob: Job? = null
+
     private fun startStreaming() {
         stopStreaming()
         binding.surfaceView.visibility = View.VISIBLE
@@ -295,12 +297,34 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             return
         }
 
+        var receivedFirstH264Frame = false
+        watchdogJob?.cancel()
+        watchdogJob = lifecycleScope.launch {
+            delay(2500)
+            if (!receivedFirstH264Frame && isActive) {
+                runOnUiThread {
+                    binding.tvStreamStatus.visibility = View.VISIBLE
+                    binding.tvStreamStatus.text = "对端未输出视频流，已切换为兼容模式"
+                    startFallbackImageStream()
+                }
+            }
+        }
+
         manager.startH264Stream(
             surface = surface,
             config = config,
             deviceW = deviceWidth,
             deviceH = deviceHeight,
+            onFirstFrame = {
+                receivedFirstH264Frame = true
+                watchdogJob?.cancel()
+                runOnUiThread {
+                    binding.pbLoading.visibility = View.GONE
+                    binding.tvStreamStatus.visibility = View.GONE
+                }
+            },
             onError = { errMsg ->
+                watchdogJob?.cancel()
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE
                     binding.tvStreamStatus.text = errMsg
@@ -308,14 +332,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 }
             }
         )
-
-        lifecycleScope.launch {
-            delay(1200)
-            binding.pbLoading.visibility = View.GONE
-        }
     }
 
     private fun stopStreaming() {
+        watchdogJob?.cancel()
+        watchdogJob = null
         scrcpyManager?.stopStream()
         streamJob?.cancel()
         streamJob = null
@@ -325,6 +346,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
      * 兼容截图模式 (当硬件解码失败或备用)
      */
     private fun startFallbackImageStream() {
+        watchdogJob?.cancel()
+        scrcpyManager?.stopStream()
+        streamJob?.cancel()
+
         binding.surfaceView.visibility = View.GONE
         binding.ivScreen.visibility = View.VISIBLE
         binding.pbLoading.visibility = View.VISIBLE
@@ -332,19 +357,28 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
             val manager = scrcpyManager ?: return@launch
             val (targetW, targetH) = manager.calculateTargetSize(deviceWidth, deviceHeight, config.maxSize)
-
-            withContext(Dispatchers.Main) {
-                binding.pbLoading.visibility = View.GONE
-            }
+            var isFirst = true
 
             while (isActive) {
                 val frame = manager.captureFrame(targetW, targetH)
                 if (frame != null) {
                     withContext(Dispatchers.Main) {
+                        if (isFirst) {
+                            binding.pbLoading.visibility = View.GONE
+                            binding.tvStreamStatus.visibility = View.GONE
+                            isFirst = false
+                        }
                         binding.ivScreen.setImageBitmap(frame)
                     }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        if (isFirst) {
+                            binding.tvStreamStatus.visibility = View.VISIBLE
+                            binding.tvStreamStatus.text = "正在获取屏幕画面..."
+                        }
+                    }
                 }
-                delay(150)
+                delay(35)
             }
         }
     }
@@ -415,7 +449,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun showQuickMenuDialog() {
-        val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", "投屏设置", "返回主页")
+        val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", "切换投屏模式 (流式/截图)", "投屏设置", "返回主页")
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("控制菜单")
             .setItems(items) { _, which ->
@@ -431,8 +465,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         saveConfig()
                     }
                     2 -> toggleDeviceScreen()
-                    3 -> showSettingsDialog()
-                    4 -> finish()
+                    3 -> {
+                        if (binding.surfaceView.visibility == View.VISIBLE) {
+                            Toast.makeText(this, "正在切换至兼容截图投屏模式...", Toast.LENGTH_SHORT).show()
+                            startFallbackImageStream()
+                        } else {
+                            Toast.makeText(this, "正在切换至硬件解码流式投屏...", Toast.LENGTH_SHORT).show()
+                            startStreaming()
+                        }
+                    }
+                    4 -> showSettingsDialog()
+                    5 -> finish()
                 }
             }
             .show()
