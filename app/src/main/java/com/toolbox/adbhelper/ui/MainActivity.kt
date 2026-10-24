@@ -341,9 +341,22 @@ class MainActivity : AppCompatActivity() {
             selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value.name
         }
 
-        // 5. 开关
+        // 5. 初始化音频源下拉
+        val currentAudioSource = prefs.getInt("scrcpy_audio_source", 0)
+        var selectedAudioSource = currentAudioSource
+        val audioLabels = ScrcpyPresets.AUDIO_SOURCE_OPTIONS.map { it.label }
+        val audioAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, audioLabels)
+        dialogBinding.actvAudioSource.setAdapter(audioAdapter)
+        dialogBinding.actvAudioSource.setText(ScrcpyPresets.getAudioSourceLabel(currentAudioSource), false)
+        dialogBinding.actvAudioSource.setOnItemClickListener { _, _, position, _ ->
+            selectedAudioSource = ScrcpyPresets.AUDIO_SOURCE_OPTIONS[position].value
+        }
+
+        // 6. 开关
+        val currentAudio = prefs.getBoolean("scrcpy_audio_forward", true)
         dialogBinding.switchFullscreen.isChecked = isFullscreen
         dialogBinding.switchScreenOff.isChecked = turnScreenOff
+        dialogBinding.switchAudioForward.isChecked = currentAudio
 
         val isDeviceConnected = DeviceManager.adbClient != null
         if (isDeviceConnected) {
@@ -358,8 +371,10 @@ class MainActivity : AppCompatActivity() {
                 .putInt("scrcpy_bitrate", selectedBitrate)
                 .putInt("scrcpy_max_fps", selectedFps)
                 .putString("scrcpy_nav_pos", selectedNavPos)
+                .putInt("scrcpy_audio_source", selectedAudioSource)
                 .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
                 .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
+                .putBoolean("scrcpy_audio_forward", dialogBinding.switchAudioForward.isChecked)
                 .apply()
 
             updateMirrorSubtitle()

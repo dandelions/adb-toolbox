@@ -203,13 +203,14 @@ class ScrcpyManager(
         val maxFps = if (config.maxFps > 0) config.maxFps else 60
 
         if (config.enableAudio) {
+            val audioSource = config.audioSource
             Thread({
                 try {
                     val player = AudioStreamPlayer(context)
                     player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
                     audioPlayer = player
                     kotlinx.coroutines.runBlocking {
-                        player.start(adbClient)
+                        player.start(adbClient, audioSource)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Audio player launch error: ${e.message}")
@@ -564,17 +565,20 @@ class ScrcpyManager(
 
     /**
      * 动态开启或关闭音频传输
+     * @param audioSource 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别
      */
-    fun setAudioEnabled(enabled: Boolean) {
+    fun setAudioEnabled(enabled: Boolean, audioSource: Int = 0) {
+        audioPlayer?.stop()
+        audioPlayer = null
+
         if (enabled) {
-            if (audioPlayer?.isPlaying() == true) return
             Thread({
                 try {
                     val player = AudioStreamPlayer(context)
                     player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
                     audioPlayer = player
                     kotlinx.coroutines.runBlocking {
-                        player.start(adbClient)
+                        player.start(adbClient, audioSource)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Dynamic audio start failed: ${e.message}")
@@ -582,8 +586,6 @@ class ScrcpyManager(
                 }
             }, "DynamicAudioThread").start()
         } else {
-            audioPlayer?.stop()
-            audioPlayer = null
             onAudioStatus?.invoke("音频已停止", false)
         }
     }

@@ -76,7 +76,8 @@ data class ScrcpyConfig(
     var stayAwake: Boolean = true,
     var navPosition: NavPosition = NavPosition.BOTTOM,
     var isFullscreen: Boolean = false,
-    var enableAudio: Boolean = false // 声音传输 (音频转发)
+    var enableAudio: Boolean = true, // 声音传输 (音频转发，默认开启)
+    var audioSource: Int = 0 // 音频源：0=自动(优先系统内录)，1=麦克风音源(MIC)，2=语音识别(VOICE_RECOGNITION)
 ) : Serializable
 
 data class ScrcpyOption<T>(
@@ -85,6 +86,15 @@ data class ScrcpyOption<T>(
 )
 
 object ScrcpyPresets {
+    val AUDIO_SOURCE_OPTIONS = listOf(
+        ScrcpyOption("自动/系统声音内录 (推荐，需被控端播放声音)", 0),
+        ScrcpyOption("被控端麦克风 (MIC，采集环境音/扬声器外放)", 1),
+        ScrcpyOption("语音识别音源 (VOICE_RECOGNITION)", 2)
+    )
+
+    fun getAudioSourceLabel(source: Int): String {
+        return AUDIO_SOURCE_OPTIONS.find { it.value == source }?.label ?: AUDIO_SOURCE_OPTIONS[0].label
+    }
     val RESOLUTION_OPTIONS = listOf(
         ScrcpyOption("自动适配本机屏幕 (推荐，等比完整容纳)", -1),
         ScrcpyOption("720P (标清流畅，等比适配)", 1280),

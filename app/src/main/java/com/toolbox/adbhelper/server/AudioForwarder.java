@@ -5,11 +5,8 @@ import android.annotation.TargetApi;
 import android.app.Application;
 import android.app.Instrumentation;
 import android.content.AttributionSource;
-import android.content.ComponentName;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
@@ -54,7 +51,8 @@ public class AudioForwarder {
             Looper.prepareMainLooper();
         }
 
-        System.out.println("[AudioForwarder] Initializing for Android " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")...");
+        String mode = (args != null && args.length > 0) ? args[0].toLowerCase() : "auto";
+        System.out.println("[AudioForwarder] Initializing: mode=" + mode + ", Android " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")");
         applyWorkarounds();
 
         LocalServerSocket serverSocket = null;
@@ -69,26 +67,37 @@ public class AudioForwarder {
             clientSocket = serverSocket.accept();
             OutputStream os = clientSocket.getOutputStream();
 
-            recorder = createAudioRecord();
+            recorder = createAudioRecord(mode);
             if (recorder == null) {
-                System.err.println("ERROR: Failed to create AudioRecord on device");
+                System.err.println("ERROR: Failed to create AudioRecord on device for mode=" + mode);
                 return;
             }
 
-            // 启动录音会话（针对 Android 11 具备前台 activity 保活与重试机制）
+            // 启动录音会话（针对 Android 11 前台伪装与状态检测）
             startRecordingWithWorkarounds(recorder);
 
             System.out.println("AUDIO_RECORDING_STARTED");
             System.out.flush();
 
             int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING);
-            int bufferSize = Math.max(minBuf * 2, 4096);
+            int bufferSize = (minBuf > 0) ? Math.max(minBuf * 2, 8192) : 16384;
             byte[] buffer = new byte[bufferSize];
+            long totalBytesSent = 0;
+            long lastLogTime = System.currentTimeMillis();
 
             while (!Thread.currentThread().isInterrupted()) {
                 int read = recorder.read(buffer, 0, buffer.length);
                 if (read > 0) {
                     os.write(buffer, 0, read);
+                    os.flush();
+                    totalBytesSent += read;
+
+                    long now = System.currentTimeMillis();
+                    if (now - lastLogTime >= 3000) {
+                        System.out.println("[AudioForwarder] Stream active: total " + (totalBytesSent / 1024) + " KB sent");
+                        System.out.flush();
+                        lastLogTime = now;
+                    }
                 } else if (read < 0) {
                     System.err.println("AudioRecord read error: " + read);
                     break;
@@ -114,12 +123,26 @@ public class AudioForwarder {
     }
 
     /**
-     * 创建 AudioRecord，按照优先级依次降级尝试
+     * 根据请求模式创建 AudioRecord
      */
-    private static AudioRecord createAudioRecord() {
+    private static AudioRecord createAudioRecord(String mode) {
         AudioRecord record = null;
 
-        // 1. Android 13+ (API 33+) 优先使用 AudioPolicy 静态回环策略
+        // 模式 1: 指定麦克风源 (MIC)
+        if ("mic".equalsIgnoreCase(mode)) {
+            System.out.println("[AudioForwarder] User requested explicit MIC capture");
+            return createMicRecord();
+        }
+
+        // 模式 2: 指定语音识别源
+        if ("voicerecog".equalsIgnoreCase(mode)) {
+            System.out.println("[AudioForwarder] User requested VOICE_RECOGNITION capture");
+            return createVoiceRecognitionRecord();
+        }
+
+        // 模式 3: 默认自动模式 (系统声音内录优先，降级到 MIC)
+
+        // 3.1 Android 13+ (API 33+) 优先使用 AudioPolicy 系统音频回环
         if (Build.VERSION.SDK_INT >= 33) {
             try {
                 record = createAudioPolicyRecord();
@@ -132,7 +155,7 @@ public class AudioForwarder {
             }
         }
 
-        // 2. Android 11+ (API 30+) 优先尝试 AudioRecord.Builder (REMOTE_SUBMIX 系统声音)
+        // 3.2 尝试 AudioRecord.Builder (REMOTE_SUBMIX 系统内录)
         try {
             record = createBuilderAudioRecord(MediaRecorder.AudioSource.REMOTE_SUBMIX);
             if (record != null && record.getState() == AudioRecord.STATE_INITIALIZED) {
@@ -144,7 +167,7 @@ public class AudioForwarder {
             System.err.println("[AudioForwarder] Builder REMOTE_SUBMIX failed: " + t.getMessage());
         }
 
-        // 3. 尝试反射 native_setup 构造 REMOTE_SUBMIX (绕过部分厂商 ROM 的 context 检查)
+        // 3.3 尝试底层反射 native_setup 构造 REMOTE_SUBMIX
         try {
             record = createNativeAudioRecord(MediaRecorder.AudioSource.REMOTE_SUBMIX);
             if (record != null && record.getState() == AudioRecord.STATE_INITIALIZED) {
@@ -156,11 +179,12 @@ public class AudioForwarder {
             System.err.println("[AudioForwarder] native_setup REMOTE_SUBMIX failed: " + t.getMessage());
         }
 
-        // 4. 尝试直接标准构造 REMOTE_SUBMIX
+        // 3.4 尝试标准构造 REMOTE_SUBMIX
         try {
             int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING);
+            int bufSize = (minBuf > 0) ? Math.max(minBuf * 4, 8192) : 16384;
             record = new AudioRecord(MediaRecorder.AudioSource.REMOTE_SUBMIX,
-                    SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, Math.max(minBuf * 4, 8192));
+                    SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, bufSize);
             if (record.getState() == AudioRecord.STATE_INITIALIZED) {
                 System.out.println("[AudioForwarder] Selected strategy: Standard REMOTE_SUBMIX");
                 return record;
@@ -171,31 +195,52 @@ public class AudioForwarder {
             System.err.println("[AudioForwarder] Standard REMOTE_SUBMIX failed: " + t.getMessage());
         }
 
-        // 5. 降级尝试 VOICE_RECOGNITION 音源
+        // 3.5 自动降级：尝试 MIC (麦克风)
+        System.out.println("[AudioForwarder] REMOTE_SUBMIX unavailable on this system, auto-falling back to MIC");
+        record = createMicRecord();
+        if (record != null) {
+            return record;
+        }
+
+        // 3.6 自动降级：尝试 VOICE_RECOGNITION
+        return createVoiceRecognitionRecord();
+    }
+
+    private static AudioRecord createMicRecord() {
         try {
-            record = createBuilderAudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION);
+            AudioRecord record = createBuilderAudioRecord(MediaRecorder.AudioSource.MIC);
+            if (record != null && record.getState() == AudioRecord.STATE_INITIALIZED) {
+                System.out.println("[AudioForwarder] Selected fallback: Builder MIC");
+                return record;
+            }
+            if (record != null) record.release();
+        } catch (Throwable ignored) {}
+
+        try {
+            int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING);
+            int bufSize = (minBuf > 0) ? Math.max(minBuf * 4, 8192) : 16384;
+            AudioRecord record = new AudioRecord(MediaRecorder.AudioSource.MIC,
+                    SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, bufSize);
+            if (record.getState() == AudioRecord.STATE_INITIALIZED) {
+                System.out.println("[AudioForwarder] Selected fallback: Standard MIC");
+                return record;
+            }
+            record.release();
+        } catch (Throwable t) {
+            System.err.println("[AudioForwarder] MIC creation failed: " + t.getMessage());
+        }
+        return null;
+    }
+
+    private static AudioRecord createVoiceRecognitionRecord() {
+        try {
+            AudioRecord record = createBuilderAudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION);
             if (record != null && record.getState() == AudioRecord.STATE_INITIALIZED) {
                 System.out.println("[AudioForwarder] Selected fallback: VOICE_RECOGNITION");
                 return record;
             }
-            if (record != null) { record.release(); record = null; }
+            if (record != null) record.release();
         } catch (Throwable ignored) {}
-
-        // 6. 最终降级尝试 MIC (麦克风)
-        try {
-            int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING);
-            record = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                    SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, Math.max(minBuf * 4, 8192));
-            if (record.getState() == AudioRecord.STATE_INITIALIZED) {
-                System.out.println("[AudioForwarder] Selected fallback: MIC (microphone)");
-                return record;
-            }
-            record.release();
-            record = null;
-        } catch (Throwable t) {
-            System.err.println("[AudioForwarder] Fallback MIC failed: " + t.getMessage());
-        }
-
         return null;
     }
 
@@ -227,13 +272,13 @@ public class AudioForwarder {
      */
     private static void startRecordingWithWorkarounds(AudioRecord recorder) throws Exception {
         if (Build.VERSION.SDK_INT == 30) {
-            System.out.println("[AudioForwarder] Android 11 detected: applying foreground workaround...");
+            System.out.println("[AudioForwarder] Android 11 detected: triggering foreground workaround...");
             startWorkaroundAndroid11();
             boolean success = false;
             Throwable lastErr = null;
 
-            // 循环尝试启动录音，给前台 Activity 切换留出充足时间 (最多等待 6 次，共约 720ms)
-            for (int i = 0; i < 6; i++) {
+            // 循环尝试启动录音，给前台 Activity 切换留出充足时间 (最多等待 8 次，共约 1 秒)
+            for (int i = 0; i < 8; i++) {
                 try {
                     Thread.sleep(120);
                     recorder.startRecording();
@@ -247,7 +292,7 @@ public class AudioForwarder {
                 }
             }
 
-            // 录音会话一旦底层建立成功，关闭前台 activity 不会影响流录制
+            // 温和关闭前台 Activity（发送 BACK 键，切忌使用 am force-stop 杀死自己）
             stopWorkaroundAndroid11();
 
             if (!success) {
@@ -267,7 +312,7 @@ public class AudioForwarder {
 
     private static void startWorkaroundAndroid11() {
         try {
-            // 通过 am 命令行以阻塞等待模式唤起 HeapDumpActivity，确保 UID 2000 置于前台
+            // 通过 am 命令行拉起 HeapDumpActivity
             Runtime.getRuntime().exec(new String[]{
                 "am", "start", "-n", PACKAGE_NAME + "/.HeapDumpActivity"
             });
@@ -278,9 +323,9 @@ public class AudioForwarder {
 
     private static void stopWorkaroundAndroid11() {
         try {
-            // 通过 am force-stop 关闭前台 Activity
+            // 通过发送返回键关闭覆盖层，切勿执行 am force-stop，以免将自身 shell 进程 kill 掉
             Runtime.getRuntime().exec(new String[]{
-                "am", "force-stop", PACKAGE_NAME
+                "input", "keyevent", "4"
             });
         } catch (Throwable ignored) {}
     }
@@ -393,7 +438,7 @@ public class AudioForwarder {
         mChannelMaskField.setAccessible(true);
         mChannelMaskField.set(audioRecord, CHANNEL_CONFIG);
 
-        // 关键：必须显式反射设置 mAudioFormat，防止其为 0 (ENCODING_INVALID)
+        // 显式反射设置 mAudioFormat，防止其为 0 (ENCODING_INVALID)
         try {
             Field mAudioFormatField = AudioRecord.class.getDeclaredField("mAudioFormat");
             mAudioFormatField.setAccessible(true);
@@ -401,7 +446,7 @@ public class AudioForwarder {
         } catch (Throwable ignored) {}
 
         int minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING);
-        int bufferSizeInBytes = minBufferSize * 8;
+        int bufferSizeInBytes = (minBufferSize > 0) ? minBufferSize * 8 : 16384;
 
         Method audioBuffSizeCheckMethod = AudioRecord.class.getDeclaredMethod("audioBuffSizeCheck", int.class);
         audioBuffSizeCheckMethod.setAccessible(true);
@@ -415,7 +460,6 @@ public class AudioForwarder {
             Method nativeSetupMethod = AudioRecord.class.getDeclaredMethod("native_setup", Object.class, Object.class, int[].class, int.class,
                     int.class, int.class, int.class, int[].class, String.class, long.class);
             nativeSetupMethod.setAccessible(true);
-            // 关键：audioFormat 传参严格传入 ENCODING (2)，绝不能传未初始化的 0！
             initResult = (int) nativeSetupMethod.invoke(audioRecord, new WeakReference<>(audioRecord), attributes, sampleRateArray,
                     CHANNEL_CONFIG, 0, ENCODING, bufferSizeInBytes, session, PACKAGE_NAME, 0L);
         } else {
@@ -501,7 +545,7 @@ public class AudioForwarder {
 
             fakeContext = new FakeContext(getSystemContext());
 
-            // 填充 mInitialApplication (防止在部分厂商系统上因 context 空指针崩溃)
+            // 填充 mInitialApplication
             try {
                 Application app = Instrumentation.newApplication(Application.class, fakeContext);
                 Field mInitialApplicationField = activityThreadClass.getDeclaredField("mInitialApplication");

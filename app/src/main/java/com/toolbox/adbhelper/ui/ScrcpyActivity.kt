@@ -68,6 +68,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_FULLSCREEN = "scrcpy_fullscreen"
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
         private const val KEY_AUDIO_FORWARD = "scrcpy_audio_forward"
+        private const val KEY_AUDIO_SOURCE = "scrcpy_audio_source"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,11 +101,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             onAudioStatus = { msg, isError ->
                 runOnUiThread {
                     if (isError) {
-                        Toast.makeText(this@ScrcpyActivity, msg, Toast.LENGTH_LONG).show()
-                        updateDiagBar(indicatorColor = "#F44336", text = msg.take(28))
-                    } else {
-                        updateDiagBar(indicatorColor = "#4CAF50", text = msg.take(28))
+                        Toast.makeText(this@ScrcpyActivity, msg, Toast.LENGTH_SHORT).show()
                     }
+                    updateAudioDiag(msg, isError)
                 }
             }
         }
@@ -145,7 +144,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
-        config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, false)
+        config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
+        config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0)
     }
 
     private fun saveConfig() {
@@ -157,6 +157,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .putBoolean(KEY_FULLSCREEN, config.isFullscreen)
             .putBoolean(KEY_SCREEN_OFF, config.turnScreenOff)
             .putBoolean(KEY_AUDIO_FORWARD, config.enableAudio)
+            .putInt(KEY_AUDIO_SOURCE, config.audioSource)
             .apply()
     }
 
@@ -414,12 +415,35 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
-    private fun updateDiagBar(indicatorColor: String, text: String) {
+    private var currentVideoDiag: String = "正在连接..."
+    private var currentAudioDiag: String = "音频准备中"
+    private var currentDiagColor: String = "#FFB300"
+
+    private fun updateCombinedDiag() {
+        val combined = if (config.enableAudio) {
+            "$currentVideoDiag | $currentAudioDiag"
+        } else {
+            "$currentVideoDiag | 音频:已关"
+        }
         try {
             binding.vStatusIndicator.backgroundTintList =
-                android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor(indicatorColor))
-            binding.tvDiagText.text = text
+                android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor(currentDiagColor))
+            binding.tvDiagText.text = combined
         } catch (_: Exception) {}
+    }
+
+    private fun updateDiagBar(indicatorColor: String, text: String) {
+        currentDiagColor = indicatorColor
+        currentVideoDiag = text
+        updateCombinedDiag()
+    }
+
+    private fun updateAudioDiag(text: String, isError: Boolean) {
+        currentAudioDiag = text
+        if (isError) {
+            currentDiagColor = "#F44336"
+        }
+        updateCombinedDiag()
     }
 
     private fun toggleStreamMode() {
@@ -691,7 +715,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value
         }
 
-        // 5. 初始化开关
+        // 5. 初始化音频源下拉
+        var selectedAudioSource = config.audioSource
+        val audioLabels = ScrcpyPresets.AUDIO_SOURCE_OPTIONS.map { it.label }
+        val audioAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, audioLabels)
+        dialogBinding.actvAudioSource.setAdapter(audioAdapter)
+        dialogBinding.actvAudioSource.setText(ScrcpyPresets.getAudioSourceLabel(config.audioSource), false)
+        dialogBinding.actvAudioSource.setOnItemClickListener { _, _, position, _ ->
+            selectedAudioSource = ScrcpyPresets.AUDIO_SOURCE_OPTIONS[position].value
+        }
+
+        // 6. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
         dialogBinding.switchAudioForward.isChecked = config.enableAudio
@@ -712,7 +746,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             config.turnScreenOff = dialogBinding.switchScreenOff.isChecked
 
             val oldAudio = config.enableAudio
+            val oldSource = config.audioSource
             config.enableAudio = dialogBinding.switchAudioForward.isChecked
+            config.audioSource = selectedAudioSource
 
             saveConfig()
             applyNavPosition(config.navPosition)
@@ -720,8 +756,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 applyFullscreen(config.isFullscreen)
             }
 
-            if (oldAudio != config.enableAudio) {
-                scrcpyManager?.setAudioEnabled(config.enableAudio)
+            if (oldAudio != config.enableAudio || oldSource != config.audioSource) {
+                scrcpyManager?.setAudioEnabled(config.enableAudio, config.audioSource)
             }
 
             dialog.dismiss()

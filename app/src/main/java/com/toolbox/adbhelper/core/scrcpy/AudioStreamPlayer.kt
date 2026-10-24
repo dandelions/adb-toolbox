@@ -38,8 +38,9 @@ class AudioStreamPlayer(private val context: Context) {
 
     /**
      * 启动音频转发与本机播放
+     * @param audioSource 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别音源
      */
-    suspend fun start(adbClient: AdbClient) = withContext(Dispatchers.IO) {
+    suspend fun start(adbClient: AdbClient, audioSource: Int = 0) = withContext(Dispatchers.IO) {
         if (isPlaying.get()) return@withContext
         isPlaying.set(true)
 
@@ -54,8 +55,13 @@ class AudioStreamPlayer(private val context: Context) {
                 onStatus?.invoke("提示：本机当前媒体音量为静音，请按音量键调大", false)
             }
 
+            val modeName = when (audioSource) {
+                1 -> "麦克风 (MIC)"
+                2 -> "语音识别"
+                else -> "自动 (系统内录优先)"
+            }
             // 1. 在对端启动 AudioForwarder 服务进程
-            onStatus?.invoke("正在对端启动系统音频捕获服务...", false)
+            onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
 
             // 预先唤醒屏幕并执行 Android 11 前台伪装，确保 UID 2000 录音权限生效
             try {
@@ -63,7 +69,12 @@ class AudioStreamPlayer(private val context: Context) {
                 adbClient.executeShell("am start -n com.android.shell/.HeapDumpActivity 2>/dev/null")
             } catch (_: Exception) {}
 
-            val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder"
+            val modeArg = when (audioSource) {
+                1 -> "mic"
+                2 -> "voicerecog"
+                else -> "auto"
+            }
+            val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder $modeArg"
             serverStream = try {
                 adbClient.connection.openStream("shell:$serverCmd", 5000)
             } catch (e: Exception) {
@@ -88,9 +99,11 @@ class AudioStreamPlayer(private val context: Context) {
                             } else if (line.contains("Selected strategy: AudioPolicy")) {
                                 onStatus?.invoke("音频录制：系统内录 (AudioPolicy)", false)
                             } else if (line.contains("Selected strategy:")) {
-                                onStatus?.invoke("音频录制：系统内录 (REMOTE_SUBMIX)", false)
-                            } else if (line.contains("Selected fallback:")) {
-                                onStatus?.invoke("音频录制：环境音采集模式", false)
+                                onStatus?.invoke("音频录制：系统声音内录 (REMOTE_SUBMIX)", false)
+                            } else if (line.contains("Selected fallback:") || line.contains("explicit MIC")) {
+                                onStatus?.invoke("音频录制：麦克风采集模式", false)
+                            } else if (line.contains("Stream active:")) {
+                                onStatus?.invoke("对端音频活跃传输中", false)
                             } else if (line.contains("ERROR:") || line.contains("Permission Denial") || line.contains("failed with code")) {
                                 onStatus?.invoke("对端音频捕获提示: $line", true)
                             }
