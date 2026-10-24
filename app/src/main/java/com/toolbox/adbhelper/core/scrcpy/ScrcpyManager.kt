@@ -38,6 +38,11 @@ class ScrcpyManager(
     @Volatile
     private var preferredCaptureMethod = 0
 
+    @Volatile
+    private var lastCaptureError: String = ""
+
+    fun getLastCaptureError(): String = lastCaptureError
+
     fun isStreamingNow(): Boolean = isStreaming.get()
 
     /**
@@ -490,39 +495,67 @@ class ScrcpyManager(
 
     private fun captureFrameViaExec(targetW: Int, targetH: Int): Bitmap? {
         try {
-            val raw = readStreamBytes("exec:screencap -p", 2500)
+            val raw = readStreamBytes("exec:screencap -p", 4000)
+            if (raw.isEmpty()) {
+                lastCaptureError = "exec:screencap 无输出"
+                return null
+            }
             if (raw.size > 8) {
                 val offset = findPngHeader(raw)
                 if (offset >= 0) {
                     val bmp = BitmapFactory.decodeByteArray(raw, offset, raw.size - offset)
                     if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+                    lastCaptureError = "BitmapFactory 解码失败"
+                } else {
+                    val preview = String(raw, 0, minOf(raw.size, 80), Charsets.UTF_8).trim()
+                    lastCaptureError = "非PNG输出: $preview"
                 }
+            } else {
+                lastCaptureError = "字节过短(${raw.size}字节)"
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            lastCaptureError = "Exec截屏异常: ${e.message}"
+        }
         return null
     }
 
     private fun captureFrameViaBase64(targetW: Int, targetH: Int): Bitmap? {
         try {
-            val raw = readStreamBytes("shell:screencap -p 2>/dev/null | base64", 3500)
-            if (raw.isNotEmpty()) {
-                val decoded = android.util.Base64.decode(raw, android.util.Base64.DEFAULT)
-                if (decoded.size > 8) {
-                    val offset = findPngHeader(decoded)
-                    if (offset >= 0) {
-                        val bmp = BitmapFactory.decodeByteArray(decoded, offset, decoded.size - offset)
-                        if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
-                    }
+            val raw = readStreamBytes("shell:screencap -p 2>/dev/null | base64", 5000)
+            if (raw.isEmpty()) {
+                lastCaptureError = "Base64管道无输出"
+                return null
+            }
+            val decoded = try {
+                android.util.Base64.decode(raw, android.util.Base64.DEFAULT)
+            } catch (e: Exception) {
+                lastCaptureError = "Base64解码异常: ${e.message}"
+                return null
+            }
+            if (decoded.size > 8) {
+                val offset = findPngHeader(decoded)
+                if (offset >= 0) {
+                    val bmp = BitmapFactory.decodeByteArray(decoded, offset, decoded.size - offset)
+                    if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+                    lastCaptureError = "PNG解析失败"
+                } else {
+                    lastCaptureError = "Base64还原数据无PNG头"
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            lastCaptureError = "Base64截屏异常: ${e.message}"
+        }
         return null
     }
 
     private fun captureFrameViaTempFile(targetW: Int, targetH: Int): Bitmap? {
         try {
             val remotePath = "/data/local/tmp/scrcpy_frame.png"
-            adbClient.executeShell("screencap -p $remotePath")
+            val screencapOut = adbClient.executeShell("screencap -p $remotePath")
+            if (screencapOut.contains("Permission denied") || screencapOut.contains("error")) {
+                lastCaptureError = "临时截图被拒绝: ${screencapOut.trim()}"
+                return null
+            }
             val localCache = java.io.File(context.cacheDir, "temp_frame.png")
             val sync = adbClient.openSync()
             try {
@@ -533,8 +566,13 @@ class ScrcpyManager(
             if (localCache.exists() && localCache.length() > 0) {
                 val bmp = BitmapFactory.decodeFile(localCache.absolutePath)
                 if (bmp != null) return scaleBitmapIfNeeded(bmp, targetW, targetH)
+                lastCaptureError = "临时文件解码失败"
+            } else {
+                lastCaptureError = "拉取截图为空"
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            lastCaptureError = "文件同步异常: ${e.message}"
+        }
         return null
     }
 

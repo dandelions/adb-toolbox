@@ -45,8 +45,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:layout_marginTop="48dp"
-            android:textColor="#B0BEC5"
+            android:layout_marginTop="56dp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:paddingHorizontal="24dp"
+            android:textColor="#ECEFF1"
             android:textSize="13sp"
             android:visibility="gone" />
 

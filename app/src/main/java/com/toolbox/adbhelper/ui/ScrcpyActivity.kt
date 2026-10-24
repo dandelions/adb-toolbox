@@ -45,6 +45,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private var isScreenOff = false
     private var surfaceCreated = false
+    private var isFallbackMode = false
 
     companion object {
         private const val PREFS_NAME = "scrcpy_prefs"
@@ -292,7 +293,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceCreated = false
-        stopStreaming()
+        // 关键隔离：只有硬件流模式才停止解码，绝不误杀正在运行的截屏兼容流
+        if (!isFallbackMode) {
+            watchdogJob?.cancel()
+            watchdogJob = null
+            scrcpyManager?.stopStream()
+        }
     }
 
     private var watchdogJob: Job? = null
@@ -334,7 +340,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun startStreaming() {
-        stopStreaming()
+        isFallbackMode = false
+        watchdogJob?.cancel()
+        watchdogJob = null
+        scrcpyManager?.stopStream()
+        streamJob?.cancel()
+        streamJob = null
+
         binding.surfaceView.visibility = View.VISIBLE
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
@@ -403,15 +415,26 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
      * 兼容截图模式 (当硬件解码失败或备用)
      */
     private fun startFallbackImageStream() {
+        isFallbackMode = true
         watchdogJob?.cancel()
+        watchdogJob = null
         scrcpyManager?.stopStream()
         streamJob?.cancel()
+        streamJob = null
 
         binding.surfaceView.visibility = View.GONE
         binding.ivScreen.visibility = View.VISIBLE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
-        binding.tvStreamStatus.text = "正在获取屏幕画面..."
+        binding.tvStreamStatus.text = "正在以兼容模式获取屏幕画面..."
+
+        // 支持点击状态文字手动唤醒被控端并重试
+        binding.tvStreamStatus.setOnClickListener {
+            lifecycleScope.launch(Dispatchers.IO) {
+                scrcpyManager?.turnScreenOn()
+            }
+            Toast.makeText(this, "正在重新拉取画面...", Toast.LENGTH_SHORT).show()
+        }
 
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
             val manager = scrcpyManager ?: return@launch
@@ -438,10 +461,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                 } else {
                     consecutiveFailures++
-                    if (isFirst && consecutiveFailures > 3) {
+                    if (isFirst && consecutiveFailures in 2..6) {
                         withContext(Dispatchers.Main) {
                             binding.tvStreamStatus.visibility = View.VISIBLE
-                            binding.tvStreamStatus.text = "正在重试获取被控端画面 (请确保设备未处于熄屏锁定)..."
+                            val lastErr = manager.getLastCaptureError()
+                            val msg = if (lastErr.isNotBlank()) "正在获取画面: $lastErr" else "正在重试获取被控端画面 (请确保设备未锁定)..."
+                            binding.tvStreamStatus.text = msg
+                        }
+                        // 首次连续失败时，尝试主动唤醒被控端一次（防止被控端锁屏息屏）
+                        if (consecutiveFailures == 3) {
+                            manager.turnScreenOn()
                         }
                     }
                 }
