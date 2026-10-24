@@ -355,7 +355,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 5. 初始化音频源下拉
-        val currentAudioSource = prefs.getInt("scrcpy_audio_source", 0)
+        val currentAudioSource = prefs.getInt("scrcpy_audio_source", 3)
         var selectedAudioSource = currentAudioSource
         val audioLabels = ScrcpyPresets.AUDIO_SOURCE_OPTIONS.map { it.label }
         val audioAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, audioLabels)

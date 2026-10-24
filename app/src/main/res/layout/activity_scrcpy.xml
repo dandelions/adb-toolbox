@@ -143,6 +143,19 @@
             android:textSize="11sp" />
 
         <TextView
+            android:id="@+id/btnQuickAudio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#33FFFFFF"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="音频选项"
+            android:textColor="#C5CAE9"
+            android:textSize="11sp" />
+
+        <TextView
             android:id="@+id/btnQuickWake"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

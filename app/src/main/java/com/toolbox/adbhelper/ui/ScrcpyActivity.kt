@@ -151,7 +151,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
-        config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0)
+        config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 3) // 默认采用 Sndcpy 稳定内录
     }
 
     private fun saveConfig() {
@@ -199,6 +199,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // 诊断栏快捷按钮
         binding.btnQuickSwitchMode.setOnClickListener {
             toggleStreamMode()
+        }
+        binding.btnQuickAudio.setOnClickListener {
+            showAudioSourceQuickDialog()
         }
         binding.btnQuickWake.setOnClickListener {
             lifecycleScope.launch(Dispatchers.IO) {
@@ -1098,6 +1101,33 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     5 -> finish()
                 }
             }
+            .show()
+    }
+
+    private fun showAudioSourceQuickDialog() {
+        val options = ScrcpyPresets.AUDIO_SOURCE_OPTIONS
+        val labels = options.map { it.label }.toTypedArray()
+        val currentIndex = options.indexOfFirst { it.value == config.audioSource }.coerceAtLeast(0)
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("音频传输设置")
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                val selected = options[which].value
+                config.audioSource = selected
+                config.enableAudio = true
+                saveConfig()
+                scrcpyManager?.setAudioEnabled(true, selected)
+                Toast.makeText(this, "已切换为: ${options[which].label}", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNeutralButton(if (config.enableAudio) "关闭音频" else "开启音频") { _, _ ->
+                config.enableAudio = !config.enableAudio
+                saveConfig()
+                scrcpyManager?.setAudioEnabled(config.enableAudio, config.audioSource)
+                val msg = if (config.enableAudio) "已开启音频传输" else "已关闭音频传输"
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
             .show()
     }
 

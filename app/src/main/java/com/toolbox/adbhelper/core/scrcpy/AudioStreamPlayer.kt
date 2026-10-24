@@ -21,6 +21,7 @@ class AudioStreamPlayer(private val context: Context) {
         private const val SAMPLE_RATE = 48000
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_STEREO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
+        private const val SNDCPY_PACKAGE = "com.rom1v.sndcpy"
     }
 
     private val isPlaying = AtomicBoolean(false)
@@ -38,16 +39,13 @@ class AudioStreamPlayer(private val context: Context) {
 
     /**
      * 启动音频转发与本机播放
-     * @param audioSource 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别音源
+     * @param audioSource 3: Sndcpy伴侣系统内录, 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别音源
      */
-    suspend fun start(adbClient: AdbClient, audioSource: Int = 0) = withContext(Dispatchers.IO) {
+    suspend fun start(adbClient: AdbClient, audioSource: Int = 3) = withContext(Dispatchers.IO) {
         if (isPlaying.get()) return@withContext
         isPlaying.set(true)
 
         try {
-            onStatus?.invoke("正在准备音频转发组件...", false)
-            ensureHelperPushed(context, adbClient)
-
             // 检查本机媒体音量
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val currentVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 1
@@ -55,167 +53,267 @@ class AudioStreamPlayer(private val context: Context) {
                 onStatus?.invoke("提示：本机当前媒体音量为静音，请按音量键调大", false)
             }
 
-            val modeName = when (audioSource) {
-                1 -> "麦克风 (MIC)"
-                2 -> "语音识别"
-                else -> "自动 (系统内录优先)"
-            }
-            // 1. 在对端启动 AudioForwarder 服务进程
-            onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
-
-            // 唤醒屏幕并确保 UID 2000 录音权限，同时主动清理残留的堆转储请求与文件
-            try {
-                adbClient.executeShell("input keyevent 224") // 唤醒屏幕
-                adbClient.executeShell("cmd appops set 2000 RECORD_AUDIO allow 2>/dev/null")
-                adbClient.executeShell("cmd appops set com.android.shell RECORD_AUDIO allow 2>/dev/null")
-                adbClient.executeShell("am broadcast -a com.android.shell.action.DELETE_HEAP_DUMP 2>/dev/null")
-                adbClient.executeShell("rm -f /data/local/tmp/*.hprof /data/local/tmp/heapdump* 2>/dev/null")
-            } catch (_: Exception) {}
-
-            val modeArg = when (audioSource) {
-                1 -> "mic"
-                2 -> "voicerecog"
-                else -> "auto"
-            }
-            val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder $modeArg"
-            serverStream = try {
-                adbClient.connection.openStream("shell:$serverCmd", 5000)
-            } catch (e: Exception) {
-                val err = "启动对端音频服务进程失败: ${e.message}"
-                Log.w(TAG, err)
-                onStatus?.invoke(err, true)
-                stop()
+            // 模式 3: Sndcpy 伴侣模式 (Android 10+ 官方稳定系统内录)
+            if (audioSource == 3) {
+                startSndcpy(adbClient)
                 return@withContext
             }
 
-            // 异步消费 serverStream 输出并分析状态
-            val sStream = serverStream
-            if (sStream != null) {
-                Thread({
-                    try {
-                        val reader = sStream.inputStream.bufferedReader()
-                        while (isPlaying.get()) {
-                            val line = reader.readLine() ?: break
-                            Log.d(TAG, "[AudioForwarder] $line")
-                            if (line.contains("AUDIO_RECORDING_STARTED")) {
-                                onStatus?.invoke("音频录制已启动，正在流式传输", false)
-                            } else if (line.contains("Selected strategy: AudioPolicy")) {
-                                onStatus?.invoke("音频录制：系统内录 (AudioPolicy)", false)
-                            } else if (line.contains("Selected strategy:")) {
-                                onStatus?.invoke("音频录制：系统声音内录 (REMOTE_SUBMIX)", false)
-                            } else if (line.contains("Selected fallback:") || line.contains("explicit MIC")) {
-                                onStatus?.invoke("音频录制：麦克风采集模式", false)
-                            } else if (line.contains("Stream active:")) {
-                                onStatus?.invoke("对端音频活跃传输中", false)
-                            } else if (line.contains("ERROR:") || line.contains("Permission Denial") || line.contains("failed with code")) {
-                                onStatus?.invoke("对端音频捕获提示: $line", true)
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }, "AudioServerLogThread").apply { isDaemon = true; start() }
-            }
-
-            // 2. 轮询连接 localabstract:scrcpy_audio
-            var stream: AdbStream? = null
-            for (i in 0 until 30) {
-                if (!isPlaying.get()) break
-                try {
-                    stream = adbClient.connection.openStream("localabstract:scrcpy_audio", 800)
-                    break
-                } catch (_: Exception) {
-                    Thread.sleep(100)
-                }
-            }
-
-            if (stream == null) {
-                val err = "无法连接对端音频管道 (scrcpy_audio)，对端可能尚未启动录音"
-                Log.w(TAG, err)
-                onStatus?.invoke(err, true)
-                stop()
-                return@withContext
-            }
-            audioStream = stream
-
-            // 3. 初始化本地 AudioTrack
-            val minBufSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING)
-            val bufferSize = (minBufSize * 4).coerceAtLeast(8192)
-
-            val track = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(ENCODING)
-                            .setSampleRate(SAMPLE_RATE)
-                            .setChannelMask(CHANNEL_OUT)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(bufferSize)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-            } else {
-                @Suppress("DEPRECATION")
-                AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    SAMPLE_RATE,
-                    CHANNEL_OUT,
-                    ENCODING,
-                    bufferSize,
-                    AudioTrack.MODE_STREAM
-                )
-            }
-
-            audioTrack = track
-            track.play()
-            Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
-            onStatus?.invoke("音频已连接 (48kHz 双声道低延迟)", false)
-
-            // 4. 启动音频播放消费线程
-            playbackThread = Thread({
-                val buffer = ByteArray(4096)
-                val input = stream.inputStream
-                var totalBytesReceived = 0L
-                var hasNotifiedFirstData = false
-
-                try {
-                    while (isPlaying.get()) {
-                        val read = input.read(buffer, 0, buffer.size)
-                        if (read > 0) {
-                            track.write(buffer, 0, read)
-                            totalBytesReceived += read
-
-                            if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
-                                hasNotifiedFirstData = true
-                                onStatus?.invoke("声音传输中 (已接收数据流)", false)
-                            }
-                        } else if (read < 0) {
-                            Log.i(TAG, "音频输入流已到达 EOF")
-                            break
-                        }
-                    }
-                } catch (e: Exception) {
-                    if (isPlaying.get()) {
-                        Log.w(TAG, "音频流读取异常: ${e.message}")
-                        onStatus?.invoke("音频流中断: ${e.message}", true)
-                    }
-                } finally {
-                    stop()
-                }
-            }, "AudioPlaybackThread").apply {
-                priority = Thread.MAX_PRIORITY
-                start()
-            }
+            // 模式 0/1/2: 免安装 AudioForwarder 模式
+            startAudioForwarder(adbClient, audioSource)
 
         } catch (e: Exception) {
             val err = "音频转发启动失败: ${e.message}"
             Log.e(TAG, err, e)
             onStatus?.invoke(err, true)
             stop()
+        }
+    }
+
+    /**
+     * 通过 Sndcpy 伴侣应用捕获纯系统声音 (Android 10+)
+     */
+    private suspend fun startSndcpy(adbClient: AdbClient) {
+        onStatus?.invoke("准备 Sndcpy 系统内录组件...", false)
+
+        // 1. 检查被控端是否已安装 Sndcpy APK，未安装则自动无感安装
+        val checkInstalled = adbClient.executeShell("pm path $SNDCPY_PACKAGE 2>/dev/null")
+        if (!checkInstalled.contains("package:")) {
+            onStatus?.invoke("正在向被控端安装 Sndcpy 录音组件...", false)
+            val installSuccess = installSndcpyApk(adbClient)
+            if (!installSuccess) {
+                onStatus?.invoke("Sndcpy 组件安装失败，正尝试切换至麦克风...", true)
+                startAudioForwarder(adbClient, 1)
+                return
+            }
+        }
+
+        // 2. 授权 PROJECT_MEDIA (截取系统音频权限)
+        try {
+            adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
+            adbClient.executeShell("appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
+            adbClient.executeShell("pm grant $SNDCPY_PACKAGE android.permission.RECORD_AUDIO 2>/dev/null")
+            adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE RECORD_AUDIO allow 2>/dev/null")
+        } catch (_: Exception) {}
+
+        // 3. 启动 Sndcpy 捕获服务
+        onStatus?.invoke("正在唤醒 Sndcpy 服务 (若被控端弹出录屏/录音授权请点击允许)...", false)
+        adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
+
+        // 4. 连接 localabstract:sndcpy
+        var stream: AdbStream? = null
+        for (i in 0 until 40) {
+            if (!isPlaying.get()) break
+            try {
+                stream = adbClient.connection.openStream("localabstract:sndcpy", 1000)
+                break
+            } catch (_: Exception) {
+                Thread.sleep(150)
+            }
+        }
+
+        if (stream == null) {
+            val err = "未能连接 sndcpy 服务 (请确认被控端屏幕已允许音频捕获弹窗)"
+            Log.w(TAG, err)
+            onStatus?.invoke(err, true)
+            stop()
+            return
+        }
+        audioStream = stream
+
+        initAudioTrackAndPlay(stream, "Sndcpy 高清系统内录")
+    }
+
+    /**
+     * 将 assets/sndcpy.apk 推送到被控端并执行 pm install
+     */
+    private fun installSndcpyApk(client: AdbClient): Boolean {
+        return try {
+            val assetBytes = context.assets.open("sndcpy.apk").use { it.readBytes() }
+            val tempFile = File(context.cacheDir, "sndcpy.apk")
+            tempFile.writeBytes(assetBytes)
+
+            val sync = client.openSync()
+            try {
+                sync.pushFile(tempFile, "/data/local/tmp/sndcpy.apk")
+            } finally {
+                sync.close()
+                tempFile.delete()
+            }
+
+            client.executeShell("chmod 755 /data/local/tmp/sndcpy.apk")
+            val installResult = client.executeShell("pm install -r -g -t /data/local/tmp/sndcpy.apk")
+            client.executeShell("rm -f /data/local/tmp/sndcpy.apk 2>/dev/null")
+            Log.i(TAG, "Sndcpy install output: $installResult")
+            installResult.contains("Success") || installResult.contains("already installed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install sndcpy apk", e)
+            false
+        }
+    }
+
+    /**
+     * 免安装模式：通过 app-helper.jar 的 AudioForwarder 服务
+     */
+    private suspend fun startAudioForwarder(adbClient: AdbClient, audioSource: Int) {
+        onStatus?.invoke("正在准备音频转发组件...", false)
+        ensureHelperPushed(context, adbClient)
+
+        val modeName = when (audioSource) {
+            1 -> "麦克风 (MIC)"
+            2 -> "语音识别"
+            else -> "自动 (系统内录优先)"
+        }
+        onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
+
+        try {
+            adbClient.executeShell("input keyevent 224") // 唤醒屏幕
+            adbClient.executeShell("cmd appops set 2000 RECORD_AUDIO allow 2>/dev/null")
+            adbClient.executeShell("cmd appops set com.android.shell RECORD_AUDIO allow 2>/dev/null")
+            adbClient.executeShell("am broadcast -a com.android.shell.action.DELETE_HEAP_DUMP 2>/dev/null")
+            adbClient.executeShell("rm -f /data/local/tmp/*.hprof /data/local/tmp/heapdump* 2>/dev/null")
+        } catch (_: Exception) {}
+
+        val modeArg = when (audioSource) {
+            1 -> "mic"
+            2 -> "voicerecog"
+            else -> "auto"
+        }
+        val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder $modeArg"
+        serverStream = try {
+            adbClient.connection.openStream("shell:$serverCmd", 5000)
+        } catch (e: Exception) {
+            val err = "启动对端音频服务进程失败: ${e.message}"
+            Log.w(TAG, err)
+            onStatus?.invoke(err, true)
+            stop()
+            return
+        }
+
+        val sStream = serverStream
+        if (sStream != null) {
+            Thread({
+                try {
+                    val reader = sStream.inputStream.bufferedReader()
+                    while (isPlaying.get()) {
+                        val line = reader.readLine() ?: break
+                        Log.d(TAG, "[AudioForwarder] $line")
+                        if (line.contains("AUDIO_RECORDING_STARTED")) {
+                            onStatus?.invoke("音频录制已启动，正在流式传输", false)
+                        } else if (line.contains("Selected strategy: AudioPolicy")) {
+                            onStatus?.invoke("音频录制：系统内录 (AudioPolicy)", false)
+                        } else if (line.contains("Selected strategy:")) {
+                            onStatus?.invoke("音频录制：系统声音内录 (REMOTE_SUBMIX)", false)
+                        } else if (line.contains("Selected fallback:") || line.contains("explicit MIC")) {
+                            onStatus?.invoke("音频录制：麦克风采集模式", false)
+                        } else if (line.contains("Stream active:")) {
+                            onStatus?.invoke("对端音频活跃传输中", false)
+                        } else if (line.contains("ERROR:") || line.contains("Permission Denial") || line.contains("failed with code")) {
+                            onStatus?.invoke("对端音频捕获提示: $line", true)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }, "AudioServerLogThread").apply { isDaemon = true; start() }
+        }
+
+        var stream: AdbStream? = null
+        for (i in 0 until 30) {
+            if (!isPlaying.get()) break
+            try {
+                stream = adbClient.connection.openStream("localabstract:scrcpy_audio", 800)
+                break
+            } catch (_: Exception) {
+                Thread.sleep(100)
+            }
+        }
+
+        if (stream == null) {
+            val err = "无法连接对端音频管道 (scrcpy_audio)，对端可能尚未启动录音"
+            Log.w(TAG, err)
+            onStatus?.invoke(err, true)
+            stop()
+            return
+        }
+        audioStream = stream
+
+        initAudioTrackAndPlay(stream, "音频已连接 (48kHz 双声道低延迟)")
+    }
+
+    /**
+     * 初始化 AudioTrack 并启动消费线程
+     */
+    private fun initAudioTrackAndPlay(stream: AdbStream, successMessage: String) {
+        val minBufSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING)
+        val bufferSize = (minBufSize * 4).coerceAtLeast(8192)
+
+        val track = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(ENCODING)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(CHANNEL_OUT)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            AudioTrack(
+                AudioManager.STREAM_MUSIC,
+                SAMPLE_RATE,
+                CHANNEL_OUT,
+                ENCODING,
+                bufferSize,
+                AudioTrack.MODE_STREAM
+            )
+        }
+
+        audioTrack = track
+        track.play()
+        Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
+        onStatus?.invoke(successMessage, false)
+
+        playbackThread = Thread({
+            val buffer = ByteArray(4096)
+            val input = stream.inputStream
+            var totalBytesReceived = 0L
+            var hasNotifiedFirstData = false
+
+            try {
+                while (isPlaying.get()) {
+                    val read = input.read(buffer, 0, buffer.size)
+                    if (read > 0) {
+                        track.write(buffer, 0, read)
+                        totalBytesReceived += read
+
+                        if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
+                            hasNotifiedFirstData = true
+                            onStatus?.invoke("声音传输中 (已接收数据流)", false)
+                        }
+                    } else if (read < 0) {
+                        Log.i(TAG, "音频输入流已到达 EOF")
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                if (isPlaying.get()) {
+                    Log.w(TAG, "音频流读取异常: ${e.message}")
+                    onStatus?.invoke("音频流中断: ${e.message}", true)
+                }
+            } finally {
+                stop()
+            }
+        }, "AudioPlaybackThread").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
         }
     }
 
@@ -254,7 +352,6 @@ class AudioStreamPlayer(private val context: Context) {
             val expectedSize = assetBytes.size
             val check = client.executeShell("ls -l /data/local/tmp/app-helper.jar 2>/dev/null")
 
-            // 严格比对文件大小，一旦版本不一致立即无缝更新推送
             if (!check.contains(expectedSize.toString())) {
                 Log.i(TAG, "正在推送最新 app-helper.jar ($expectedSize 字节)...")
                 val temp = File(context.cacheDir, "app-helper.jar")
