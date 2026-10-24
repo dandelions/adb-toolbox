@@ -414,7 +414,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         var receivedFirstH264Frame = false
         watchdogJob?.cancel()
         watchdogJob = lifecycleScope.launch {
-            delay(3500)
+            delay(6000)
             if (!receivedFirstH264Frame && isActive) {
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE

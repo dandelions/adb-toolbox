@@ -193,8 +193,26 @@ class ScrcpyManager(
                 var useScrcpyServer = ensureServerPushed()
                 if (useScrcpyServer) {
                     try {
-                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $targetW $bitrate $maxFps -1 true - false false 0 false true - - false"
-                        serverStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
+                        // scrcpy 1.18 命令行规范严格校验：
+                        // 1.version(1.18) 2.logLevel(info) 3.maxSize(必须为8的倍数, 0代表原生)
+                        // 4.bitrate 5.maxFps 6.tunnelForward(true) 7.crop(-) 8.sendFrameMeta(false)
+                        // 9.control(false) 10.displayId(0) 11.showTouches(false) 12.stayAwake(true)
+                        // 13.codecOptions(-) 14.encoderName(-) 15.powerOffScreenOnClose(false)
+                        val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
+                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps true - false false 0 false true - - false"
+                        val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
+                        serverStream = sStream
+
+                        // 异步消费 server 输出，防止管道缓冲区写满挂起
+                        Thread({
+                            try {
+                                val reader = sStream.inputStream.bufferedReader()
+                                while (isStreaming.get()) {
+                                    val line = reader.readLine() ?: break
+                                    Log.d(TAG, "[scrcpy-server] $line")
+                                }
+                            } catch (_: Exception) {}
+                        }, "ScrcpyServerLogThread").apply { isDaemon = true; start() }
 
                         // 轮询等待 server 建立 localabstract:scrcpy 监听
                         var connectedStream: AdbStream? = null
