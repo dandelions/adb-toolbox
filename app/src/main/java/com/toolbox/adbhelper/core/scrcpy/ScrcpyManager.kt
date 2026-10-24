@@ -491,6 +491,19 @@ class ScrcpyManager(
     fun stopStream() {
         if (!isStreaming.getAndSet(false)) return
 
+        // 1. 优先停止解码器与解码线程，防止它们继续向 socket 写入 OKAY 数据包
+        try {
+            mediaCodec?.stop()
+            mediaCodec?.release()
+        } catch (_: Exception) {}
+        mediaCodec = null
+
+        try {
+            streamThread?.interrupt()
+        } catch (_: Exception) {}
+        streamThread = null
+
+        // 2. 温和关闭各 ADB 通道流，顺序为视频流 -> 控制流 -> server进程流
         try {
             adbStream?.close()
         } catch (_: Exception) {}
@@ -505,17 +518,6 @@ class ScrcpyManager(
             serverStream?.close()
         } catch (_: Exception) {}
         serverStream = null
-
-        try {
-            mediaCodec?.stop()
-            mediaCodec?.release()
-        } catch (_: Exception) {}
-        mediaCodec = null
-
-        try {
-            streamThread?.interrupt()
-        } catch (_: Exception) {}
-        streamThread = null
     }
 
     /**

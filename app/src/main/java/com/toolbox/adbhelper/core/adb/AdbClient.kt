@@ -9,6 +9,8 @@ import java.io.IOException
 
 class AdbClient(val connection: AdbConnection) {
 
+    val isConnected: Boolean get() = connection.isConnected()
+
     fun executeShell(command: String, timeoutMs: Long = 10000): String {
         val stream = connection.openStream("shell:$command", timeoutMs)
         val baos = ByteArrayOutputStream()

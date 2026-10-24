@@ -19,6 +19,7 @@ import com.toolbox.adbhelper.core.model.ScrcpyPresets
 import com.toolbox.adbhelper.databinding.ActivityMainBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -68,7 +69,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnFeatureMirror.setOnClickListener {
-            if (DeviceManager.adbClient == null) {
+            val client = DeviceManager.adbClient
+            if (client == null || !client.isConnected) {
                 MaterialAlertDialogBuilder(this)
                     .setTitle("屏幕投屏")
                     .setMessage("当前尚未连接 ADB 设备。\n您可以前往连接，或者在连接前配置投屏的分辨率与码率预设。")
@@ -112,7 +114,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkConnectionAndRun(action: () -> Unit) {
-        if (DeviceManager.adbClient == null) {
+        val client = DeviceManager.adbClient
+        if (client == null || !client.isConnected) {
             Toast.makeText(this, "请先连接 ADB 设备", Toast.LENGTH_SHORT).show()
             startActivity(Intent(this, ConnectActivity::class.java))
         } else {
@@ -123,17 +126,27 @@ class MainActivity : AppCompatActivity() {
     private fun refreshDeviceState() {
         val dev = DeviceManager.currentDevice
         val client = DeviceManager.adbClient
-        if (dev != null && client != null) {
+        if (dev != null && client != null && client.isConnected) {
             binding.tvDeviceName.text = "${dev.name} (${dev.type})"
             binding.tvDeviceStatus.text = "设备在线，点击可断开"
             binding.btnConnect.text = "断开"
             binding.cardDeviceInfo.visibility = View.VISIBLE
 
             lifecycleScope.launch {
-                val info = withContext(Dispatchers.IO) { client.getDeviceInfo() }
-                updateDeviceInfoUI(info)
+                try {
+                    val info = withContext(Dispatchers.IO) { client.getDeviceInfo() }
+                    updateDeviceInfoUI(info)
+                } catch (_: Exception) {
+                    if (isActive) {
+                        DeviceManager.disconnect()
+                        refreshDeviceState()
+                    }
+                }
             }
         } else {
+            if (dev != null || client != null) {
+                DeviceManager.disconnect()
+            }
             binding.tvDeviceName.text = "未连接任何设备"
             binding.tvDeviceStatus.text = "点击连接设备 (WiFi / OTG)"
             binding.btnConnect.text = "连接"

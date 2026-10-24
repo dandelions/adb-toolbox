@@ -22,6 +22,9 @@ class AdbConnection(
     private val isClosed = AtomicBoolean(false)
     private var readThread: Thread? = null
 
+    // 报文发送线程安全互斥锁（杜绝多线程写 TCP 管道导致数据包交错损坏）
+    private val writeLock = Any()
+
     // 握手同步锁
     private val connectLock = Object()
 
@@ -32,6 +35,20 @@ class AdbConnection(
     private var lastError: String? = null
 
     var onAuthPrompt: (() -> Unit)? = null
+    var onDisconnect: (() -> Unit)? = null
+
+    fun isConnected(): Boolean = isConnected.get() && !isClosed.get()
+
+    /**
+     * 线程安全、原子写入单个 ADB 报文
+     */
+    private fun sendMsg(msg: AdbMessage) {
+        synchronized(writeLock) {
+            if (!isClosed.get()) {
+                msg.writeToStream(transport.outputStream)
+            }
+        }
+    }
 
     fun connect(timeoutMs: Long = 30000) {
         sentSignature = false
@@ -44,7 +61,7 @@ class AdbConnection(
             arg1 = AdbMessage.CONNECT_MAXDATA,
             payload = banner
         )
-        cnxnMsg.writeToStream(transport.outputStream)
+        sendMsg(cnxnMsg)
 
         // 启动消息接收循环
         startReaderThread()
@@ -114,7 +131,7 @@ class AdbConnection(
                                 payload = signature
                             )
                             sentSignature = true
-                            reply.writeToStream(transport.outputStream)
+                            sendMsg(reply)
                         } catch (e: Exception) {
                             Log.e(TAG, "Sign token failed, fallback to public key", e)
                             sentSignature = true
@@ -140,9 +157,13 @@ class AdbConnection(
             }
             AdbMessage.CMD_WRTE -> {
                 val localId = msg.arg1
+                val remoteId = msg.arg0
                 val stream = streams[localId]
                 if (stream != null) {
                     stream.onDataReceived(msg.payload)
+                } else {
+                    // 对端流在途中产生残留数据，回复 CLSE 告知该流已结束
+                    sendClose(localId, remoteId)
                 }
             }
             AdbMessage.CMD_CLSE -> {
@@ -170,7 +191,7 @@ class AdbConnection(
             arg1 = 0,
             payload = pubKey
         )
-        authMsg.writeToStream(transport.outputStream)
+        sendMsg(authMsg)
     }
 
     fun openStream(destination: String, timeoutMs: Long = 5000): AdbStream {
@@ -188,7 +209,7 @@ class AdbConnection(
             arg1 = 0,
             payload = payload
         )
-        openMsg.writeToStream(transport.outputStream)
+        sendMsg(openMsg)
 
         // 等待 OKAY 响应获取 remoteId
         synchronized(stream) {
@@ -217,7 +238,7 @@ class AdbConnection(
             arg1 = remoteId,
             payload = data
         )
-        msg.writeToStream(transport.outputStream)
+        sendMsg(msg)
     }
 
     fun sendOkay(localId: Int, remoteId: Int) {
@@ -226,7 +247,7 @@ class AdbConnection(
             arg0 = localId,
             arg1 = remoteId
         )
-        msg.writeToStream(transport.outputStream)
+        sendMsg(msg)
     }
 
     fun sendClose(localId: Int, remoteId: Int) {
@@ -236,7 +257,7 @@ class AdbConnection(
             arg1 = remoteId
         )
         try {
-            msg.writeToStream(transport.outputStream)
+            sendMsg(msg)
         } catch (_: Exception) {}
     }
 
@@ -256,6 +277,9 @@ class AdbConnection(
                 transport.close()
             } catch (_: Exception) {}
             readThread?.interrupt()
+            try {
+                onDisconnect?.invoke()
+            } catch (_: Exception) {}
         }
     }
 }
