@@ -71,7 +71,7 @@ enum class NavPosition {
 data class ScrcpyConfig(
     var maxSize: Int = -1, // -1 为自动适配本机屏幕，0 为原画，常见 1920 (1080P), 1280 (720P), 854 (480P)
     var bitRate: Int = 8_000_000, // 码率 (2M, 4M, 8M, 16M)，默认 8M 确保高清细腻
-    var maxFps: Int = 120, // 默认 120 帧高刷，丝滑流畅
+    var maxFps: Int = 60, // 默认 60 帧标准流畅，广泛兼容省电
     var turnScreenOff: Boolean = false, // 熄屏运行
     var stayAwake: Boolean = true,
     var navPosition: NavPosition = NavPosition.BOTTOM,
@@ -100,9 +100,9 @@ object ScrcpyPresets {
     )
 
     val FPS_OPTIONS = listOf(
+        ScrcpyOption("60 FPS (标准流畅，广泛兼容省电)", 60),
         ScrcpyOption("120 FPS (极速高刷，极致丝滑)", 120),
         ScrcpyOption("90 FPS (高刷流畅，省电推荐)", 90),
-        ScrcpyOption("60 FPS (标准流畅，广泛兼容)", 60),
         ScrcpyOption("30 FPS (省电低功耗)", 30)
     )
 

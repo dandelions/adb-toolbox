@@ -88,11 +88,6 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             deviceWidth = w
             deviceHeight = h
 
-            if (config.turnScreenOff) {
-                scrcpyManager?.turnScreenOff()
-                isScreenOff = true
-            }
-
             withContext(Dispatchers.Main) {
                 if (surfaceCreated && scrcpyManager?.isStreamingNow() != true) {
                     startStreaming()
@@ -104,7 +99,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun loadConfig() {
         config.maxSize = prefs.getInt(KEY_MAX_SIZE, -1)
         config.bitRate = prefs.getInt(KEY_BITRATE, 8_000_000)
-        config.maxFps = prefs.getInt(KEY_MAX_FPS, 120)
+        config.maxFps = prefs.getInt(KEY_MAX_FPS, 60)
         val navPosName = prefs.getString(KEY_NAV_POS, NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         config.navPosition = try {
             NavPosition.valueOf(navPosName)
@@ -152,10 +147,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.btnToolbarSettings.setOnClickListener { showSettingsDialog() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
-        // 浮动悬浮球（当导航栏隐藏或浮动时使用）
-        binding.fabQuickMenu.setOnClickListener {
-            showQuickMenuDialog()
-        }
+        // 浮动悬浮球默认隐藏，远程画面保持干净无遮挡
+        binding.fabQuickMenu.visibility = View.GONE
 
         // 诊断栏快捷按钮
         binding.btnQuickSwitchMode.setOnClickListener {
@@ -254,7 +247,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
             NavPosition.FLOATING, NavPosition.HIDE -> {
                 binding.navBarWrapper.visibility = View.GONE
-                binding.fabQuickMenu.visibility = View.VISIBLE
+                binding.fabQuickMenu.visibility = View.GONE
             }
         }
         binding.navBarWrapper.layoutParams = wrapperParams
@@ -444,6 +437,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.GONE
                     updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} ${config.maxFps}fps")
+
+                    if (config.turnScreenOff && !isScreenOff) {
+                        isScreenOff = true
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            scrcpyManager?.turnScreenOff()
+                        }
+                    }
                 }
             },
             onError = { errMsg ->
@@ -535,6 +535,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             binding.pbLoading.visibility = View.GONE
                             binding.tvStreamStatus.visibility = View.GONE
                             isFirst = false
+
+                            if (config.turnScreenOff && !isScreenOff) {
+                                isScreenOff = true
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    mgr.turnScreenOff()
+                                }
+                            }
                         }
                     }
                 } else {

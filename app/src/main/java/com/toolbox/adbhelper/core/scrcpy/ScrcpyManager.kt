@@ -196,10 +196,10 @@ class ScrcpyManager(
                         // scrcpy 1.18 命令行规范严格校验 (必须精确匹配 16 个参数):
                         // 1.version(1.18) 2.logLevel(info) 3.maxSize(必须为8的倍数, 0代表原生)
                         // 4.bitrate 5.maxFps 6.lockedVideoOrientation(-1) 7.tunnelForward(true)
-                        // 8.crop(-) 9.sendFrameMeta(false) 10.control(false) 11.displayId(0)
+                        // 8.crop(-) 9.sendFrameMeta(false) 10.control(true:开启控制通道以支持无缝熄屏) 11.displayId(0)
                         // 12.showTouches(false) 13.stayAwake(true) 14.codecOptions(-) 15.encoderName(-) 16.powerOffScreenOnClose(false)
                         val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
-                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false false 0 false true - - false"
+                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false true 0 false true - - false"
                         val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
                         serverStream = sStream
 
@@ -728,23 +728,58 @@ class ScrcpyManager(
     // ====== 熄屏控制与电源管理 ======
 
     /**
-     * 被控端熄屏（保留后台操作与投屏）
+     * 被控端物理熄屏（底层切断屏幕硬件供电，但系统不休眠，视频流与后台交互持续正常输出，绝不黑屏）
      */
     suspend fun turnScreenOff() = withContext(Dispatchers.IO) {
-        // 先设为保持唤醒，然后关背光/熄屏
-        adbClient.executeShell("svc power stayon true")
-        adbClient.executeShell("input keyevent 26")
+        var success = false
+        // 1. 优先通过官方 scrcpy 控制通道发送 TYPE_SET_SCREEN_POWER_MODE = 10, mode = 0 (POWER_MODE_OFF)
+        try {
+            val stream = controlStream
+            if (stream != null) {
+                stream.outputStream.write(byteArrayOf(10.toByte(), 0.toByte()))
+                stream.outputStream.flush()
+                success = true
+                Log.i(TAG, "Turned screen off via scrcpy control stream (SurfaceControl.POWER_MODE_OFF)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Turn screen off via control stream failed: ${e.message}")
+        }
+
+        if (!success) {
+            // 2. 降级兜底：严禁调用 input keyevent 26（电源键休眠会导致投屏画面全黑）
+            // 降级为将背光亮度调至 0 并保持唤醒
+            try {
+                adbClient.executeShell("svc power stayon true")
+                adbClient.executeShell("settings put system screen_brightness 0")
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback turnScreenOff failed: ${e.message}")
+            }
+        }
     }
 
     /**
-     * 被控端点亮屏幕并尝试解锁
+     * 被控端点亮物理屏幕并尝试唤醒解锁
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
+        // 1. 优先通过官方 scrcpy 控制通道恢复屏幕供电：TYPE_SET_SCREEN_POWER_MODE = 10, mode = 2 (POWER_MODE_NORMAL)
         try {
+            val stream = controlStream
+            if (stream != null) {
+                stream.outputStream.write(byteArrayOf(10.toByte(), 2.toByte()))
+                stream.outputStream.flush()
+                Log.i(TAG, "Turned screen on via scrcpy control stream (SurfaceControl.POWER_MODE_NORMAL)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Turn screen on via control stream failed: ${e.message}")
+        }
+
+        // 2. 恢复系统亮度并发送亮屏解锁指令
+        try {
+            adbClient.executeShell("settings put system screen_brightness 128")
             adbClient.executeShell("input keyevent 224") // KEYCODE_WAKEUP
             adbClient.executeShell("wm dismiss-keyguard") // 解锁无密码锁屏
         } catch (e: Exception) {
-            Log.w(TAG, "turnScreenOn failed: ${e.message}")
+            Log.w(TAG, "turnScreenOn fallback failed: ${e.message}")
         }
     }
 

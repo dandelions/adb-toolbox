@@ -247,7 +247,8 @@ class MainActivity : AppCompatActivity() {
     private fun updateMirrorSubtitle() {
         val prefs = getSharedPreferences("scrcpy_prefs", Context.MODE_PRIVATE)
         val size = prefs.getInt("scrcpy_max_size", 1280)
-        val bitrate = prefs.getInt("scrcpy_bitrate", 4_000_000)
+        val bitrate = prefs.getInt("scrcpy_bitrate", 8_000_000)
+        val fps = prefs.getInt("scrcpy_max_fps", 60)
         val resStr = when (size) {
             0 -> "原画"
             1920 -> "1080P"
@@ -262,7 +263,7 @@ class MainActivity : AppCompatActivity() {
             16_000_000 -> "16M"
             else -> "${bitrate / 1_000_000}M"
         }
-        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr"
+        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr / ${fps}FPS"
     }
 
     private fun showScrcpyPresetDialog() {
@@ -273,13 +274,15 @@ class MainActivity : AppCompatActivity() {
             .create()
 
         val currentSize = prefs.getInt("scrcpy_max_size", 1280)
-        val currentBitrate = prefs.getInt("scrcpy_bitrate", 4_000_000)
+        val currentBitrate = prefs.getInt("scrcpy_bitrate", 8_000_000)
+        val currentFps = prefs.getInt("scrcpy_max_fps", 60)
         val navPosName = prefs.getString("scrcpy_nav_pos", NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         val isFullscreen = prefs.getBoolean("scrcpy_fullscreen", false)
         val turnScreenOff = prefs.getBoolean("scrcpy_screen_off", false)
 
         var selectedSize = currentSize
         var selectedBitrate = currentBitrate
+        var selectedFps = currentFps
         var selectedNavPos = navPosName
 
         // 1. 初始化分辨率下拉
@@ -300,7 +303,16 @@ class MainActivity : AppCompatActivity() {
             selectedBitrate = ScrcpyPresets.BITRATE_OPTIONS[position].value
         }
 
-        // 3. 初始化导航栏位置下拉
+        // 3. 初始化帧率下拉
+        val fpsLabels = ScrcpyPresets.FPS_OPTIONS.map { it.label }
+        val fpsAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, fpsLabels)
+        dialogBinding.actvFps.setAdapter(fpsAdapter)
+        dialogBinding.actvFps.setText(ScrcpyPresets.getFpsLabel(currentFps), false)
+        dialogBinding.actvFps.setOnItemClickListener { _, _, position, _ ->
+            selectedFps = ScrcpyPresets.FPS_OPTIONS[position].value
+        }
+
+        // 4. 初始化导航栏位置下拉
         val navPosEnum = try { NavPosition.valueOf(navPosName) } catch (_: Exception) { NavPosition.BOTTOM }
         val navLabels = ScrcpyPresets.NAV_POSITION_OPTIONS.map { it.label }
         val navAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, navLabels)
@@ -310,7 +322,7 @@ class MainActivity : AppCompatActivity() {
             selectedNavPos = ScrcpyPresets.NAV_POSITION_OPTIONS[position].value.name
         }
 
-        // 4. 开关
+        // 5. 开关
         dialogBinding.switchFullscreen.isChecked = isFullscreen
         dialogBinding.switchScreenOff.isChecked = turnScreenOff
 
@@ -325,6 +337,7 @@ class MainActivity : AppCompatActivity() {
             prefs.edit()
                 .putInt("scrcpy_max_size", selectedSize)
                 .putInt("scrcpy_bitrate", selectedBitrate)
+                .putInt("scrcpy_max_fps", selectedFps)
                 .putString("scrcpy_nav_pos", selectedNavPos)
                 .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
                 .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
