@@ -233,12 +233,12 @@ class ConnectActivity : AppCompatActivity() {
                 conn.connect()
 
                 val client = AdbClient(conn)
-                DeviceManager.adbClient = client
-                DeviceManager.currentDevice = ConnectedDevice(
+                val device = ConnectedDevice(
                     id = "$ip:$port",
                     name = "$ip:$port",
                     type = ConnectionType.WIFI
                 )
+                DeviceManager.recordConnection(client, device, this@ConnectActivity)
 
                 saveHistoryDevice("$ip:$port")
 
@@ -332,12 +332,13 @@ class ConnectActivity : AppCompatActivity() {
                 val conn = AdbConnection(transport, crypto)
                 conn.connect()
 
-                DeviceManager.adbClient = AdbClient(conn)
-                DeviceManager.currentDevice = ConnectedDevice(
+                val client = AdbClient(conn)
+                val device = ConnectedDevice(
                     id = target.device.deviceName,
                     name = "USB Device (${target.device.productName ?: "OTG"})",
                     type = ConnectionType.USB_OTG
                 )
+                DeviceManager.recordConnection(client, device, this@ConnectActivity)
 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@ConnectActivity, "USB OTG 连接成功！", Toast.LENGTH_SHORT).show()

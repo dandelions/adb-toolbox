@@ -24,10 +24,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class ScrcpyManager(
     private val context: Context,
-    private val adbClient: AdbClient
+    private var adbClient: AdbClient
 ) {
     companion object {
         private const val TAG = "ScrcpyManager"
+    }
+
+    fun updateAdbClient(newClient: AdbClient) {
+        this.adbClient = newClient
     }
 
     private val isStreaming = AtomicBoolean(false)

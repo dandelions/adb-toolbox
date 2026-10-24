@@ -40,6 +40,19 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshDeviceState()
         updateMirrorSubtitle()
+
+        if (!DeviceManager.isConnected && !DeviceManager.isExplicitDisconnect) {
+            DeviceManager.loadLastDevice(this)
+            if (!DeviceManager.lastEndpoint.isNullOrBlank()) {
+                lifecycleScope.launch {
+                    val success = DeviceManager.tryReconnect(this@MainActivity)
+                    if (success && isActive) {
+                        refreshDeviceState()
+                        updateMirrorSubtitle()
+                    }
+                }
+            }
+        }
     }
 
     private fun initViews() {
