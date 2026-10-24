@@ -64,6 +64,19 @@ class ScrcpyManager(
     suspend fun getDeviceResolution(): Pair<Int, Int> = withContext(Dispatchers.IO) {
         try {
             val out = adbClient.executeShell("wm size")
+            // 优先匹配 Override size (系统实际生效的显示分辨率)，其次匹配 Physical size
+            val overrideMatch = Regex("""Override size:\s*(\d+)x(\d+)""").find(out)
+            if (overrideMatch != null) {
+                val w = overrideMatch.groupValues[1].toInt()
+                val h = overrideMatch.groupValues[2].toInt()
+                return@withContext Pair(w, h)
+            }
+            val physicalMatch = Regex("""Physical size:\s*(\d+)x(\d+)""").find(out)
+            if (physicalMatch != null) {
+                val w = physicalMatch.groupValues[1].toInt()
+                val h = physicalMatch.groupValues[2].toInt()
+                return@withContext Pair(w, h)
+            }
             val match = Regex("""(\d+)x(\d+)""").find(out)
             if (match != null) {
                 val w = match.groupValues[1].toInt()
@@ -199,11 +212,8 @@ class ScrcpyManager(
                         // 4.bitrate 5.maxFps 6.lockedVideoOrientation(-1) 7.tunnelForward(true)
                         // 8.crop(-) 9.sendFrameMeta(false) 10.control(true:开启控制通道以支持无缝熄屏) 11.displayId(0)
                         // 12.showTouches(false) 13.stayAwake(true) 14.codecOptions(-) 15.encoderName(-) 16.powerOffScreenOnClose(false)
-                        val safeMaxSize = when {
-                            config.maxSize > 0 -> (config.maxSize / 8) * 8
-                            config.maxSize == -1 -> (maxOf(targetW, targetH) / 8) * 8
-                            else -> 0
-                        }
+                        // maxSize > 0 代表指定固定分辨率(如1280/1920/854)；maxSize <= 0(如自动适配-1、原画0)传0表示原生无损输出
+                        val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
                         val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false true 0 false true - - false"
                         val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
                         serverStream = sStream

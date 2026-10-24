@@ -271,22 +271,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val (curDevW, curDevH) = getCurrentDeviceDimensions()
         if (curDevW <= 0 || curDevH <= 0) return null
 
-        val (normX, normY) = if (view.id == binding.flScreenContainer.id) {
-            val activeChild = if (binding.surfaceView.visibility == View.VISIBLE) binding.surfaceView else binding.ivScreen
-            val childW = activeChild.width.toFloat()
-            val childH = activeChild.height.toFloat()
-            if (childW <= 0 || childH <= 0) return null
-            val offsetX = (view.width - childW) / 2f
-            val offsetY = (view.height - childH) / 2f
-            val clampedX = (touchX - offsetX).coerceIn(0f, childW)
-            val clampedY = (touchY - offsetY).coerceIn(0f, childH)
-            Pair(clampedX / childW, clampedY / childH)
-        } else {
-            val w = view.width.toFloat()
-            val h = view.height.toFloat()
-            if (w <= 0 || h <= 0) return null
-            Pair((touchX / w).coerceIn(0f, 1f), (touchY / h).coerceIn(0f, 1f))
-        }
+        val w = view.width.toFloat()
+        val h = view.height.toFloat()
+        if (w <= 0 || h <= 0) return null
+
+        val normX = (touchX / w).coerceIn(0f, 1f)
+        val normY = (touchY / h).coerceIn(0f, 1f)
 
         val targetX = (normX * curDevW).toInt().coerceIn(0, curDevW - 1)
         val targetY = (normY * curDevH).toInt().coerceIn(0, curDevH - 1)
@@ -343,7 +333,6 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         binding.surfaceView.setOnTouchListener(touchListener)
         binding.ivScreen.setOnTouchListener(touchListener)
-        binding.flScreenContainer.setOnTouchListener(touchListener)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -471,9 +460,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 receivedFirstH264Frame = true
                 watchdogJob?.cancel()
                 runOnUiThread {
-                    if (w > 0 && h > 0 && (videoWidth != w || videoHeight != h)) {
+                    if (w > 0 && h > 0) {
                         videoWidth = w
                         videoHeight = h
+                        if (config.maxSize <= 0) {
+                            physicalWidth = w
+                            physicalHeight = h
+                        }
                         adjustViewAspectRatio(w, h)
                     }
                     binding.pbLoading.visibility = View.GONE
@@ -567,6 +560,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         if (videoWidth != frame.width || videoHeight != frame.height) {
                             videoWidth = frame.width
                             videoHeight = frame.height
+                            if (config.maxSize <= 0) {
+                                physicalWidth = frame.width
+                                physicalHeight = frame.height
+                            }
                             adjustViewAspectRatio(videoWidth, videoHeight)
                         }
                         binding.ivScreen.setImageBitmap(frame)
