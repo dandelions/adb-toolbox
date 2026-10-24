@@ -12,7 +12,6 @@ import com.toolbox.adbhelper.core.adb.AdbStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AudioStreamPlayer(private val context: Context) {
@@ -30,6 +29,11 @@ class AudioStreamPlayer(private val context: Context) {
     private var audioStream: AdbStream? = null
     private var playbackThread: Thread? = null
 
+    /**
+     * 状态或错误回调通知
+     */
+    var onStatus: ((message: String, isError: Boolean) -> Unit)? = null
+
     fun isPlaying(): Boolean = isPlaying.get()
 
     /**
@@ -40,19 +44,30 @@ class AudioStreamPlayer(private val context: Context) {
         isPlaying.set(true)
 
         try {
+            onStatus?.invoke("正在准备音频转发组件...", false)
             ensureHelperPushed(context, adbClient)
 
-            // 1. 在对端启动 AudioForwarder
+            // 检查本机媒体音量
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val currentVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 1
+            if (currentVol == 0) {
+                onStatus?.invoke("提示：本机当前媒体音量为静音，请按音量键调大", false)
+            }
+
+            // 1. 在对端启动 AudioForwarder 服务进程
+            onStatus?.invoke("正在对端启动系统音频捕获服务...", false)
             val serverCmd = "CLASSPATH=/data/local/tmp/app-helper.jar exec app_process / com.toolbox.adbhelper.server.AudioForwarder"
             serverStream = try {
                 adbClient.connection.openStream("shell:$serverCmd", 5000)
             } catch (e: Exception) {
-                Log.w(TAG, "启动对端音频服务进程失败: ${e.message}")
+                val err = "启动对端音频服务进程失败: ${e.message}"
+                Log.w(TAG, err)
+                onStatus?.invoke(err, true)
                 stop()
                 return@withContext
             }
 
-            // 消费 serverStream 标准输出防止阻塞
+            // 异步消费 serverStream 输出并分析状态
             val sStream = serverStream
             if (sStream != null) {
                 Thread({
@@ -61,6 +76,11 @@ class AudioStreamPlayer(private val context: Context) {
                         while (isPlaying.get()) {
                             val line = reader.readLine() ?: break
                             Log.d(TAG, "[AudioForwarder] $line")
+                            if (line.contains("AUDIO_RECORDING_STARTED")) {
+                                onStatus?.invoke("对端音频录制已就绪，正在流式传输", false)
+                            } else if (line.contains("ERROR:") || line.contains("failed") || line.contains("Permission Denial")) {
+                                onStatus?.invoke("对端音频捕获提示: $line", true)
+                            }
                         }
                     } catch (_: Exception) {}
                 }, "AudioServerLogThread").apply { isDaemon = true; start() }
@@ -68,7 +88,7 @@ class AudioStreamPlayer(private val context: Context) {
 
             // 2. 轮询连接 localabstract:scrcpy_audio
             var stream: AdbStream? = null
-            for (i in 0 until 25) {
+            for (i in 0 until 30) {
                 if (!isPlaying.get()) break
                 try {
                     stream = adbClient.connection.openStream("localabstract:scrcpy_audio", 800)
@@ -79,7 +99,9 @@ class AudioStreamPlayer(private val context: Context) {
             }
 
             if (stream == null) {
-                Log.w(TAG, "无法连接对端音频 Socket (scrcpy_audio)")
+                val err = "无法连接对端音频管道 (scrcpy_audio)，对端可能尚未启动录音"
+                Log.w(TAG, err)
+                onStatus?.invoke(err, true)
                 stop()
                 return@withContext
             }
@@ -121,24 +143,36 @@ class AudioStreamPlayer(private val context: Context) {
 
             audioTrack = track
             track.play()
-            Log.i(TAG, "AudioTrack 初始化成功，开始实时播放对端音频")
+            Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
+            onStatus?.invoke("音频已连接 (48kHz 双声道低延迟)", false)
 
             // 4. 启动音频播放消费线程
             playbackThread = Thread({
                 val buffer = ByteArray(4096)
                 val input = stream.inputStream
+                var totalBytesReceived = 0L
+                var hasNotifiedFirstData = false
+
                 try {
                     while (isPlaying.get()) {
                         val read = input.read(buffer, 0, buffer.size)
                         if (read > 0) {
                             track.write(buffer, 0, read)
+                            totalBytesReceived += read
+
+                            if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
+                                hasNotifiedFirstData = true
+                                onStatus?.invoke("声音传输中 (已接收数据流)", false)
+                            }
                         } else if (read < 0) {
+                            Log.i(TAG, "音频输入流已到达 EOF")
                             break
                         }
                     }
                 } catch (e: Exception) {
                     if (isPlaying.get()) {
                         Log.w(TAG, "音频流读取异常: ${e.message}")
+                        onStatus?.invoke("音频流中断: ${e.message}", true)
                     }
                 } finally {
                     stop()
@@ -149,7 +183,9 @@ class AudioStreamPlayer(private val context: Context) {
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "音频转发启动失败", e)
+            val err = "音频转发启动失败: ${e.message}"
+            Log.e(TAG, err, e)
+            onStatus?.invoke(err, true)
             stop()
         }
     }
@@ -180,29 +216,30 @@ class AudioStreamPlayer(private val context: Context) {
 
         playbackThread?.interrupt()
         playbackThread = null
-        Log.i(TAG, "音频转发已停止并释放")
+        Log.i(TAG, "音频转发已停止并安全释放")
     }
 
     private fun ensureHelperPushed(context: Context, client: AdbClient) {
         try {
+            val assetBytes = context.assets.open("app-helper.jar").use { it.readBytes() }
+            val expectedSize = assetBytes.size
             val check = client.executeShell("ls -l /data/local/tmp/app-helper.jar 2>/dev/null")
-            if (check.contains("app-helper.jar") && check.contains("5350")) {
-                return
-            }
 
-            val temp = File(context.cacheDir, "app-helper.jar")
-            context.assets.open("app-helper.jar").use { input ->
-                FileOutputStream(temp).use { output ->
-                    input.copyTo(output)
+            // 严格比对文件大小，一旦版本不一致立即无缝更新推送
+            if (!check.contains(expectedSize.toString())) {
+                Log.i(TAG, "正在推送最新 app-helper.jar ($expectedSize 字节)...")
+                val temp = File(context.cacheDir, "app-helper.jar")
+                temp.writeBytes(assetBytes)
+
+                val sync = client.openSync()
+                try {
+                    sync.pushFile(temp, "/data/local/tmp/app-helper.jar")
+                } finally {
+                    sync.close()
+                    temp.delete()
                 }
-            }
-
-            val sync = client.openSync()
-            try {
-                sync.pushFile(temp, "/data/local/tmp/app-helper.jar")
-            } finally {
-                sync.close()
-                temp.delete()
+                client.executeShell("chmod 644 /data/local/tmp/app-helper.jar")
+                Log.i(TAG, "app-helper.jar 推送完成并赋予读取权限")
             }
         } catch (e: Exception) {
             Log.w(TAG, "推送 app-helper.jar 异常: ${e.message}")

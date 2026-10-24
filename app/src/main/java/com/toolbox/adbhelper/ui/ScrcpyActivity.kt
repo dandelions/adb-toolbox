@@ -85,7 +85,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadConfig()
 
-        scrcpyManager = ScrcpyManager(this, client)
+        scrcpyManager = ScrcpyManager(this, client).apply {
+            onAudioStatus = { msg, isError ->
+                runOnUiThread {
+                    if (isError) {
+                        Toast.makeText(this@ScrcpyActivity, msg, Toast.LENGTH_LONG).show()
+                        updateDiagBar(indicatorColor = "#F44336", text = msg.take(28))
+                    } else {
+                        updateDiagBar(indicatorColor = "#4CAF50", text = msg.take(28))
+                    }
+                }
+            }
+        }
 
         initViews()
         initTouchControl()

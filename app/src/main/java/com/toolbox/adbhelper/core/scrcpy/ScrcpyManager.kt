@@ -35,6 +35,11 @@ class ScrcpyManager(
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
 
+    /**
+     * 音频转发状态与错误监听
+     */
+    var onAudioStatus: ((message: String, isError: Boolean) -> Unit)? = null
+
     // 缓存最快且可用的截屏方式 (1: exec, 2: base64, 3: temp_file)
     @Volatile
     private var preferredCaptureMethod = 0
@@ -201,12 +206,14 @@ class ScrcpyManager(
             Thread({
                 try {
                     val player = AudioStreamPlayer(context)
+                    player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
                     audioPlayer = player
                     kotlinx.coroutines.runBlocking {
                         player.start(adbClient)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Audio player launch error: ${e.message}")
+                    onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
                 }
             }, "AudioStartThread").start()
         }
@@ -564,17 +571,20 @@ class ScrcpyManager(
             Thread({
                 try {
                     val player = AudioStreamPlayer(context)
+                    player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
                     audioPlayer = player
                     kotlinx.coroutines.runBlocking {
                         player.start(adbClient)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Dynamic audio start failed: ${e.message}")
+                    onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
                 }
             }, "DynamicAudioThread").start()
         } else {
             audioPlayer?.stop()
             audioPlayer = null
+            onAudioStatus?.invoke("音频已停止", false)
         }
     }
 
