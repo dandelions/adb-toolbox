@@ -297,15 +297,42 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val (curDevW, curDevH) = getCurrentDeviceDimensions()
         if (curDevW <= 0 || curDevH <= 0) return null
 
-        val w = view.width.toFloat()
-        val h = view.height.toFloat()
-        if (w <= 0 || h <= 0) return null
+        val containerW: Float
+        val containerH: Float
+        val localX: Float
+        val localY: Float
 
-        val normX = (touchX / w).coerceIn(0f, 1f)
-        val normY = (touchY / h).coerceIn(0f, 1f)
+        if (view == binding.flScreenContainer) {
+            containerW = view.width.toFloat()
+            containerH = view.height.toFloat()
+            localX = touchX
+            localY = touchY
+        } else {
+            val cw = binding.flScreenContainer.width.toFloat()
+            val ch = binding.flScreenContainer.height.toFloat()
+            if (cw > 0 && ch > 0) {
+                containerW = cw
+                containerH = ch
+                localX = touchX + view.left
+                localY = touchY + view.top
+            } else {
+                containerW = view.width.toFloat()
+                containerH = view.height.toFloat()
+                localX = touchX
+                localY = touchY
+            }
+        }
 
-        val targetX = (normX * curDevW).toInt().coerceIn(0, curDevW - 1)
-        val targetY = (normY * curDevH).toInt().coerceIn(0, curDevH - 1)
+        if (containerW <= 0 || containerH <= 0) return null
+
+        val scale = minOf(containerW / curDevW, containerH / curDevH)
+        val videoW = curDevW * scale
+        val videoH = curDevH * scale
+        val offsetX = (containerW - videoW) / 2f
+        val offsetY = (containerH - videoH) / 2f
+
+        val targetX = (((localX - offsetX) / videoW) * curDevW).toInt().coerceIn(0, curDevW - 1)
+        val targetY = (((localY - offsetY) / videoH) * curDevH).toInt().coerceIn(0, curDevH - 1)
         return Pair(targetX, targetY)
     }
 
@@ -313,50 +340,148 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun initTouchControl() {
         val touchListener = View.OnTouchListener { v, event ->
             val manager = scrcpyManager ?: return@OnTouchListener false
+            val (curDevW, curDevH) = getCurrentDeviceDimensions()
+            if (curDevW <= 0 || curDevH <= 0) return@OnTouchListener false
 
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    touchDownX = event.x
-                    touchDownY = event.y
-                    touchDownTime = System.currentTimeMillis()
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val upX = event.x
-                    val upY = event.y
-                    val duration = System.currentTimeMillis() - touchDownTime
-                    val dx = upX - touchDownX
-                    val dy = upY - touchDownY
-
-                    val downCoords = getMappedDeviceCoords(touchDownX, touchDownY, v) ?: return@OnTouchListener false
-                    val upCoords = getMappedDeviceCoords(upX, upY, v) ?: return@OnTouchListener false
-
-                    val targetDownX = downCoords.first
-                    val targetDownY = downCoords.second
-                    val targetUpX = upCoords.first
-                    val targetUpY = upCoords.second
-
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        val distance = Math.hypot(dx.toDouble(), dy.toDouble())
-                        if (distance < 25) {
-                            if (duration > 500) {
-                                // 长按：原地按压
-                                manager.sendSwipe(targetDownX, targetDownY, targetDownX, targetDownY, duration.toInt().coerceAtMost(1000))
-                            } else {
-                                manager.sendTap(targetDownX, targetDownY)
-                            }
-                        } else {
-                            // 极速滑动：限制在 60ms ~ 160ms，消除被控机缓慢模拟造成的迟滞
-                            val fastDuration = minOf(duration.toInt(), 160).coerceAtLeast(60)
-                            manager.sendSwipe(targetDownX, targetDownY, targetUpX, targetUpY, fastDuration)
-                        }
+            // 1. 优先通过原生 scrcpy 36 字节极速控制流注入（微秒级实时响应，带时间戳与多点触控支持，彻底解决滑动不跟手）
+            if (manager.hasControl()) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val pId = event.getPointerId(0).toLong()
+                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v) ?: return@OnTouchListener false
+                        manager.sendTouchEvent(
+                            action = MotionEvent.ACTION_DOWN,
+                            x = coords.first,
+                            y = coords.second,
+                            devW = curDevW,
+                            devH = curDevH,
+                            pointerId = pId,
+                            buttons = if (event.buttonState == 0) 1 else event.buttonState,
+                            timeMs = event.eventTime
+                        )
+                        true
                     }
-                    true
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        val actionIndex = event.actionIndex
+                        val pId = event.getPointerId(actionIndex).toLong()
+                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v) ?: return@OnTouchListener false
+                        manager.sendTouchEvent(
+                            action = MotionEvent.ACTION_DOWN,
+                            x = coords.first,
+                            y = coords.second,
+                            devW = curDevW,
+                            devH = curDevH,
+                            pointerId = pId,
+                            buttons = if (event.buttonState == 0) 1 else event.buttonState,
+                            timeMs = event.eventTime
+                        )
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        for (i in 0 until event.pointerCount) {
+                            val pId = event.getPointerId(i).toLong()
+                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v) ?: continue
+                            manager.sendTouchEvent(
+                                action = MotionEvent.ACTION_MOVE,
+                                x = coords.first,
+                                y = coords.second,
+                                devW = curDevW,
+                                devH = curDevH,
+                                pointerId = pId,
+                                buttons = if (event.buttonState == 0) 1 else event.buttonState,
+                                timeMs = event.eventTime
+                            )
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        val actionIndex = event.actionIndex
+                        val pId = event.getPointerId(actionIndex).toLong()
+                        val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v) ?: return@OnTouchListener false
+                        manager.sendTouchEvent(
+                            action = MotionEvent.ACTION_UP,
+                            x = coords.first,
+                            y = coords.second,
+                            devW = curDevW,
+                            devH = curDevH,
+                            pointerId = pId,
+                            buttons = 0,
+                            timeMs = event.eventTime
+                        )
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val pId = event.getPointerId(0).toLong()
+                        val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v) ?: return@OnTouchListener false
+                        manager.sendTouchEvent(
+                            action = MotionEvent.ACTION_UP,
+                            x = coords.first,
+                            y = coords.second,
+                            devW = curDevW,
+                            devH = curDevH,
+                            pointerId = pId,
+                            buttons = 0,
+                            timeMs = event.eventTime
+                        )
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        for (i in 0 until event.pointerCount) {
+                            val pId = event.getPointerId(i).toLong()
+                            val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v) ?: continue
+                            manager.sendTouchEvent(
+                                action = MotionEvent.ACTION_CANCEL,
+                                x = coords.first,
+                                y = coords.second,
+                                devW = curDevW,
+                                devH = curDevH,
+                                pointerId = pId,
+                                buttons = 0,
+                                timeMs = event.eventTime
+                            )
+                        }
+                        true
+                    }
+                    else -> false
                 }
-                else -> false
+            } else {
+                // 2. 截图兼容模式下的降级模拟
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownX = event.x
+                        touchDownY = event.y
+                        touchDownTime = System.currentTimeMillis()
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val duration = System.currentTimeMillis() - touchDownTime
+                        val dx = event.x - touchDownX
+                        val dy = event.y - touchDownY
+
+                        val downCoords = getMappedDeviceCoords(touchDownX, touchDownY, v) ?: return@OnTouchListener false
+                        val upCoords = getMappedDeviceCoords(event.x, event.y, v) ?: return@OnTouchListener false
+
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val distance = Math.hypot(dx.toDouble(), dy.toDouble())
+                            if (distance < 25) {
+                                if (duration > 500) {
+                                    manager.sendSwipe(downCoords.first, downCoords.second, downCoords.first, downCoords.second, duration.toInt().coerceAtMost(1000))
+                                } else {
+                                    manager.sendTap(downCoords.first, downCoords.second)
+                                }
+                            } else {
+                                val fastDuration = minOf(duration.toInt(), 160).coerceAtLeast(60)
+                                manager.sendSwipe(downCoords.first, downCoords.second, upCoords.first, upCoords.second, fastDuration)
+                            }
+                        }
+                        true
+                    }
+                    else -> false
+                }
             }
         }
 
+        binding.flScreenContainer.setOnTouchListener(touchListener)
         binding.surfaceView.setOnTouchListener(touchListener)
         binding.ivScreen.setOnTouchListener(touchListener)
     }

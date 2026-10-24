@@ -6,7 +6,9 @@ import android.graphics.BitmapFactory
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.view.Surface
 import com.toolbox.adbhelper.core.adb.AdbClient
 import com.toolbox.adbhelper.core.adb.AdbStream
@@ -17,6 +19,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ScrcpyManager(
@@ -32,8 +35,13 @@ class ScrcpyManager(
     private var serverStream: AdbStream? = null
     private var adbStream: AdbStream? = null
     private var controlStream: AdbStream? = null
+    private val controlQueue = LinkedBlockingQueue<ByteArray>()
+    @Volatile
+    private var controlThread: Thread? = null
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
+
+    fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
     /**
      * 音频转发状态与错误监听
@@ -227,7 +235,7 @@ class ScrcpyManager(
 
             try {
                 // 1. 尝试使用官方 scrcpy-server (60fps, 极低延迟, 免装 APK)
-                var useScrcpyServer = ensureServerPushed()
+                val useScrcpyServer = ensureServerPushed()
                 if (useScrcpyServer) {
                     try {
                         // scrcpy 1.18 命令行规范严格校验 (必须精确匹配 16 个参数):
@@ -276,7 +284,10 @@ class ScrcpyManager(
 
                             // 握手步骤 2: 紧接着连接 controlSocket (scrcpy-server DesktopConnection.open 必须 accept 两次，否则会一直阻塞等待控制通道)
                             try {
-                                controlStream = adbClient.connection.openStream("localabstract:scrcpy", 2000)
+                                val cStream = adbClient.connection.openStream("localabstract:scrcpy", 2000)
+                                controlStream = cStream
+                                startControlThread(cStream)
+                                Log.i(TAG, "Scrcpy 原生极速控制通道已建立并启动分发线程")
                             } catch (e: Exception) {
                                 Log.w(TAG, "Failed to connect scrcpy control stream: ${e.message}")
                             }
@@ -296,12 +307,9 @@ class ScrcpyManager(
                                 finalH = serverH
                             }
                             Log.i(TAG, "Scrcpy-server connected successfully, resolution: ${finalW}x${finalH}")
-                        } else {
-                            useScrcpyServer = false
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Scrcpy-server start failed: ${e.message}, falling back to screenrecord")
-                        useScrcpyServer = false
                     }
                 }
 
@@ -546,6 +554,8 @@ class ScrcpyManager(
         } catch (_: Exception) {}
         audioPlayer = null
 
+        stopControlThread()
+
         // 2. 温和关闭各 ADB 通道流，顺序为视频流 -> 控制流 -> server进程流
         try {
             adbStream?.close()
@@ -721,6 +731,7 @@ class ScrcpyManager(
         return null
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun scaleBitmapIfNeeded(bitmap: Bitmap, targetW: Int, targetH: Int): Bitmap {
         // 严格保持原始图像的长宽比，严禁破坏比例硬缩放拉伸导致画面变形！
         // ImageView 的 FIT_CENTER 会由 GPU 硬件加速自动等比居中渲染，彻底省去 CPU 重采样开销
@@ -797,6 +808,109 @@ class ScrcpyManager(
         return -1
     }
 
+    // ====== 控制通道分发循环与极速输入注入 ======
+
+    private fun startControlThread(stream: AdbStream) {
+        controlThread?.interrupt()
+        controlQueue.clear()
+        controlThread = Thread({
+            try {
+                val out = stream.outputStream
+                while (!Thread.currentThread().isInterrupted && isStreaming.get()) {
+                    val packet = controlQueue.take()
+                    out.write(packet)
+                    if (controlQueue.isEmpty()) {
+                        out.flush()
+                    }
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.w(TAG, "Control loop error: ${e.message}")
+            }
+        }, "ScrcpyControlThread").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
+    }
+
+    private fun stopControlThread() {
+        try {
+            controlThread?.interrupt()
+        } catch (_: Exception) {}
+        controlThread = null
+        controlQueue.clear()
+    }
+
+    /**
+     * 微秒级无延迟注入原生触控事件 (ACTION_DOWN, ACTION_MOVE, ACTION_UP, ACTION_CANCEL, ACTION_POINTER_DOWN, ACTION_POINTER_UP)
+     * scrcpy-server 1.18 自定义版 INJECT_MY_TOUCH_EVENT 标准报文: 36 字节
+     * 直接投递给底层 InputManager，精准携带 pointerId、精确时间戳和按键状态，完美支持惯性滑动与多指触控
+     */
+    fun sendTouchEvent(
+        action: Int,
+        x: Int,
+        y: Int,
+        devW: Int,
+        devH: Int,
+        pointerId: Long = 0L,
+        buttons: Int = 1,
+        timeMs: Long = SystemClock.uptimeMillis()
+    ) {
+        val stream = controlStream
+        if (stream == null || stream.isClosed()) return
+
+        try {
+            val scrcpyAction = when (action) {
+                MotionEvent.ACTION_DOWN -> 0.toByte()
+                MotionEvent.ACTION_UP -> 1.toByte()
+                MotionEvent.ACTION_MOVE -> 2.toByte()
+                MotionEvent.ACTION_CANCEL -> 1.toByte()
+                else -> {
+                    when (action and MotionEvent.ACTION_MASK) {
+                        MotionEvent.ACTION_POINTER_DOWN -> 0.toByte()
+                        MotionEvent.ACTION_POINTER_UP -> 1.toByte()
+                        else -> return
+                    }
+                }
+            }
+
+            // 报文结构共 36 字节:
+            // [0] TYPE: 2 (1 byte, TYPE_INJECT_TOUCH_EVENT / INJECT_MY_TOUCH_EVENT)
+            // [1] action: 0=DOWN, 1=UP, 2=MOVE (1 byte)
+            // [2..9] pointerId: Long (8 bytes)
+            // [10..13] x: Int (4 bytes)
+            // [14..17] y: Int (4 bytes)
+            // [18..19] screenWidth: Short (2 bytes)
+            // [20..21] screenHeight: Short (2 bytes)
+            // [22..23] pressure: Short (2 bytes, 0xffff=1.0f, 释放为0)
+            // [24..27] buttons: Int (4 bytes, 1=PRIMARY, 释放为0)
+            // [28..35] time: Long (8 bytes, 毫秒级时间戳，用于VelocityTracker计算滑动惯性速度)
+            val buf = ByteBuffer.allocate(36)
+            buf.put(2.toByte())
+            buf.put(scrcpyAction)
+            buf.putLong(pointerId)
+            buf.putInt(x.coerceIn(0, maxOf(0, devW - 1)))
+            buf.putInt(y.coerceIn(0, maxOf(0, devH - 1)))
+            buf.putShort(devW.toShort())
+            buf.putShort(devH.toShort())
+
+            val isRelease = (action == MotionEvent.ACTION_UP ||
+                    action == MotionEvent.ACTION_CANCEL ||
+                    (action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_POINTER_UP)
+            buf.putShort(if (isRelease) 0.toShort() else 0xffff.toShort())
+            buf.putInt(if (isRelease) 0 else buttons)
+            buf.putLong(timeMs)
+
+            // 防网络抖动队列保护：若队列积压过多(>30)，清理旧的MOVE包保持跟手度
+            if (action == MotionEvent.ACTION_MOVE && controlQueue.size > 30) {
+                controlQueue.poll()
+            }
+            controlQueue.offer(buf.array())
+        } catch (e: Exception) {
+            Log.w(TAG, "sendTouchEvent error: ${e.message}")
+        }
+    }
+
     // ====== 熄屏控制与电源管理 ======
 
     /**
@@ -865,14 +979,60 @@ class ScrcpyManager(
     // ====== 虚拟按键与手势输入 ======
 
     suspend fun sendTap(x: Int, y: Int) = withContext(Dispatchers.IO) {
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            val (w, h) = getDeviceResolution()
+            val now = SystemClock.uptimeMillis()
+            sendTouchEvent(MotionEvent.ACTION_DOWN, x, y, w, h, 0L, 1, now)
+            sendTouchEvent(MotionEvent.ACTION_UP, x, y, w, h, 0L, 0, now + 40)
+            return@withContext
+        }
         adbClient.executeShell("input tap $x $y")
     }
 
     suspend fun sendSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int = 250) = withContext(Dispatchers.IO) {
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            val (w, h) = getDeviceResolution()
+            val start = SystemClock.uptimeMillis()
+            sendTouchEvent(MotionEvent.ACTION_DOWN, x1, y1, w, h, 0L, 1, start)
+            val steps = (durationMs / 12).coerceIn(8, 30)
+            for (i in 1..steps) {
+                val curX = x1 + ((x2 - x1) * i) / steps
+                val curY = y1 + ((y2 - y1) * i) / steps
+                val now = start + (durationMs * i / steps)
+                sendTouchEvent(MotionEvent.ACTION_MOVE, curX, curY, w, h, 0L, 1, now)
+                kotlinx.coroutines.delay((durationMs / steps).toLong().coerceAtLeast(5L))
+            }
+            sendTouchEvent(MotionEvent.ACTION_UP, x2, y2, w, h, 0L, 0, start + durationMs)
+            return@withContext
+        }
         adbClient.executeShell("input swipe $x1 $y1 $x2 $y2 $durationMs")
     }
 
     suspend fun sendKey(keyCode: Int) = withContext(Dispatchers.IO) {
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            try {
+                // scrcpy 1.18 INJECT_KEYCODE 报文: 14 字节
+                val downBuf = ByteBuffer.allocate(14)
+                downBuf.put(0.toByte()) // TYPE_INJECT_KEYCODE = 0
+                downBuf.put(0.toByte()) // ACTION_DOWN = 0
+                downBuf.putInt(keyCode)
+                downBuf.putInt(0) // repeat
+                downBuf.putInt(0) // metaState
+                controlQueue.offer(downBuf.array())
+
+                val upBuf = ByteBuffer.allocate(14)
+                upBuf.put(0.toByte()) // TYPE_INJECT_KEYCODE = 0
+                upBuf.put(1.toByte()) // ACTION_UP = 1
+                upBuf.putInt(keyCode)
+                upBuf.putInt(0) // repeat
+                upBuf.putInt(0) // metaState
+                controlQueue.offer(upBuf.array())
+                return@withContext
+            } catch (_: Exception) {}
+        }
         adbClient.executeShell("input keyevent $keyCode")
     }
 
