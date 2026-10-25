@@ -1124,7 +1124,6 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val oldAudio = config.enableAudio
             val oldSource = config.audioSource
             val oldQuality = config.audioQualityMode
-            val oldMute = config.muteDeviceAudio
             val oldGain = config.audioGain
 
             config.enableAudio = dialogBinding.switchAudioForward.isChecked
@@ -1140,10 +1139,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 applyFullscreen(config.isFullscreen)
             }
 
-            // 同步被控端外放静音设置
-            if (oldMute != config.muteDeviceAudio) {
-                scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
-            }
+            // 确保同步被控端外放静音设置（强制下发期望状态，杜绝状态不一致）
+            scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
 
             // 同步数字增益
             if (oldGain != config.audioGain) {
@@ -1168,7 +1165,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 startStreaming()
             } else {
                 val audioMsg = if (config.enableAudio) "声音传输已开启" else "声音传输已关闭"
-                Toast.makeText(this, "设置已生效 ($audioMsg)", Toast.LENGTH_SHORT).show()
+                val muteTip = if (config.muteDeviceAudio) "，被控端物理外放已静音" else ""
+                Toast.makeText(this, "设置已生效 ($audioMsg$muteTip)", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1176,7 +1174,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun showQuickMenuDialog() {
-        val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", "切换投屏模式 (流式/截图)", "投屏设置", "返回主页")
+        val muteAction = if (config.muteDeviceAudio) "恢复被控端外放声音" else "静音被控端物理外放"
+        val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", muteAction, "切换投屏模式 (流式/截图)", "投屏设置", "返回主页")
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("控制菜单")
             .setItems(items) { _, which ->
@@ -1193,6 +1192,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     2 -> toggleDeviceScreen()
                     3 -> {
+                        config.muteDeviceAudio = !config.muteDeviceAudio
+                        saveConfig()
+                        scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
+                        val tip = if (config.muteDeviceAudio) "已将对端物理外放彻底静音 (音量归0)" else "已恢复对端物理外放声音"
+                        Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
+                    }
+                    4 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {
                             userSelectedFallback = true
                             Toast.makeText(this, "正在切换至兼容截图投屏模式...", Toast.LENGTH_SHORT).show()
@@ -1203,8 +1209,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             startStreaming()
                         }
                     }
-                    4 -> showSettingsDialog()
-                    5 -> finish()
+                    5 -> showSettingsDialog()
+                    6 -> finish()
                 }
             }
             .show()
@@ -1231,6 +1237,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 )
                 Toast.makeText(this, "已切换为: ${options[which].label}", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
+            }
+            .setPositiveButton(if (config.muteDeviceAudio) "恢复对端声音" else "静音对端外放") { _, _ ->
+                config.muteDeviceAudio = !config.muteDeviceAudio
+                saveConfig()
+                scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
+                val tip = if (config.muteDeviceAudio) "已将对端物理外放彻底静音 (音量归0)" else "已恢复对端物理外放声音"
+                Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton(if (config.enableAudio) "关闭音频" else "开启音频") { _, _ ->
                 config.enableAudio = !config.enableAudio

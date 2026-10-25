@@ -49,7 +49,7 @@ class AudioStreamPlayer(private val context: Context) {
     fun isPlaying(): Boolean = isPlaying.get()
 
     /**
-     * 动态设置被控机外放静音（仅留1格微音量传输给远端，防止硬件扬声器扰民）
+     * 动态设置被控机物理外放静音（将外放音量置0/静音，仅将内录音频传输给控制端播放）
      */
     fun setDeviceMuted(client: AdbClient?, muted: Boolean) {
         val targetClient = client ?: lastAdbClient ?: return
@@ -57,11 +57,30 @@ class AudioStreamPlayer(private val context: Context) {
         Thread({
             try {
                 if (muted) {
-                    targetClient.executeShell("cmd media_session volume --stream 3 --set 1 2>/dev/null; media volume --stream 3 --set 1 2>/dev/null", 3000)
-                    Log.i(TAG, "已设置被控端媒体外放微音量/静音")
+                    // 多重兜底静音指令集（涵盖各大品牌 Android 10/11/12/13/14 定制系统与原生系统）：
+                    // 1. cmd media_session 将媒体流(stream 3)音量设为0
+                    // 2. 传统 media 脚本将音量设为0
+                    // 3. cmd audio 触发硬件级媒体流静音锁定
+                    // 4. settings 写入系统媒体扬声器音量为0
+                    // 5. 模拟发送15次连续音量下键，确保物理音量彻底归零
+                    val muteCmd = "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
+                            "media volume --stream 3 --set 0 2>/dev/null; " +
+                            "cmd audio set-volume-key-mute 3 1 2>/dev/null; " +
+                            "settings put system volume_music_speaker 0 2>/dev/null; " +
+                            "settings put system volume_music 0 2>/dev/null; " +
+                            "input keyevent 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 2>/dev/null"
+                    val out = targetClient.executeShell(muteCmd, 3500)
+                    Log.i(TAG, "已设置被控端物理外放彻底静音 (音量归0), 命令响应: $out")
                 } else {
-                    targetClient.executeShell("cmd media_session volume --stream 3 --set 10 2>/dev/null; media volume --stream 3 --set 10 2>/dev/null", 3000)
-                    Log.i(TAG, "已恢复被控端正常媒体外放音量")
+                    // 恢复被控机物理外放音量至正常级别（约 9 格）
+                    val unmuteCmd = "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
+                            "media volume --stream 3 --set 9 2>/dev/null; " +
+                            "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
+                            "settings put system volume_music_speaker 9 2>/dev/null; " +
+                            "settings put system volume_music 9 2>/dev/null; " +
+                            "input keyevent 24 24 24 24 24 24 24 24 24 2>/dev/null"
+                    val out = targetClient.executeShell(unmuteCmd, 3500)
+                    Log.i(TAG, "已恢复被控端正常媒体外放音量 (音量恢复), 命令响应: $out")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "设置对端静音失败: ${e.message}")
@@ -122,14 +141,14 @@ class AudioStreamPlayer(private val context: Context) {
 
         // 步骤 1: 优先尝试直接连接已有服务（如果对端已弹出并显示等待连接中，直接秒连！）
         var stream: AdbStream? = null
-        for (i in 0 until 6) {
+        for (i in 0 until 10) {
             if (!isPlaying.get()) break
             try {
                 stream = adbClient.connection.openStream("localabstract:sndcpy", 500)
                 Log.i(TAG, "检测到对端已有 Sndcpy 等待连接中，直连握手成功！")
                 break
             } catch (_: Exception) {
-                Thread.sleep(120)
+                Thread.sleep(100)
             }
         }
 
@@ -146,38 +165,38 @@ class AudioStreamPlayer(private val context: Context) {
                 }
             }
 
-            // 预授权与屏幕唤醒
+            // 合并执行：预授权、屏幕唤醒与拉起 Sndcpy MainActivity（合并为一条指令，大幅减少3~4秒的开销与延迟）
+            onStatus?.invoke("正在唤醒 Sndcpy 服务 (若对端弹出权限请允许)...", false)
+            val prepCmd = "cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null; " +
+                    "appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null; " +
+                    "pm grant $SNDCPY_PACKAGE android.permission.RECORD_AUDIO 2>/dev/null; " +
+                    "input keyevent 224 2>/dev/null; " +
+                    "am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null"
             try {
-                adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
-                adbClient.executeShell("appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
-                adbClient.executeShell("pm grant $SNDCPY_PACKAGE android.permission.RECORD_AUDIO 2>/dev/null")
-                adbClient.executeShell("input keyevent 224 2>/dev/null")
+                adbClient.executeShell(prepCmd, 4000)
             } catch (_: Exception) {}
 
-            onStatus?.invoke("正在唤醒 Sndcpy 服务 (若对端弹出权限请允许)...", false)
-            adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
-
-            // 异步自动点击弹窗
+            // 异步自动点击弹窗 (右键 22 + 回车 66 或 下键 20 + 回车 66)
             Thread({
-                for (step in 1..5) {
+                for (step in 1..4) {
                     if (!isPlaying.get() || audioStream != null) break
                     try {
-                        Thread.sleep(700)
-                        adbClient.executeShell("input keyevent 22 && input keyevent 66 2>/dev/null")
+                        Thread.sleep(600)
+                        adbClient.executeShell("input keyevent 22 66 2>/dev/null", 1500)
                         Thread.sleep(300)
-                        adbClient.executeShell("input keyevent 20 && input keyevent 66 2>/dev/null")
+                        adbClient.executeShell("input keyevent 20 66 2>/dev/null", 1500)
                     } catch (_: Exception) {}
                 }
             }, "AutoAcceptProjectionThread").start()
 
-            // 充裕时间轮询等待连接（45 次，每次 250ms，共 11 秒）
-            for (i in 1..45) {
+            // 快速高频轮询等待连接（50 次，每次 150ms，最长 7.5 秒）
+            for (i in 1..50) {
                 if (!isPlaying.get()) break
                 try {
-                    stream = adbClient.connection.openStream("localabstract:sndcpy", 800)
+                    stream = adbClient.connection.openStream("localabstract:sndcpy", 600)
                     break
                 } catch (_: Exception) {
-                    Thread.sleep(250)
+                    Thread.sleep(150)
                 }
             }
         }
