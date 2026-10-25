@@ -44,6 +44,18 @@ class FileManagerActivity : AppCompatActivity() {
         loadDirectory(currentPath)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!DeviceManager.isConnected && !DeviceManager.isExplicitDisconnect) {
+            lifecycleScope.launch {
+                val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+                if (client != null && filesList.isEmpty()) {
+                    loadDirectory(currentPath)
+                }
+            }
+        }
+    }
+
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
@@ -82,25 +94,27 @@ class FileManagerActivity : AppCompatActivity() {
     }
 
     private fun loadDirectory(path: String) {
-        val client = DeviceManager.adbClient ?: return
         currentPath = path
         binding.tvCurrentPath.text = currentPath
         binding.swipeRefresh.isRefreshing = true
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+            if (client == null) {
+                binding.swipeRefresh.isRefreshing = false
+                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                val list = client.listDirectory(path)
-                withContext(Dispatchers.Main) {
-                    filesList.clear()
-                    filesList.addAll(list)
-                    adapter.notifyDataSetChanged()
-                    binding.swipeRefresh.isRefreshing = false
-                }
+                val list = withContext(Dispatchers.IO) { client.listDirectory(path) }
+                filesList.clear()
+                filesList.addAll(list)
+                adapter.notifyDataSetChanged()
+                binding.swipeRefresh.isRefreshing = false
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    binding.swipeRefresh.isRefreshing = false
-                    Toast.makeText(this@FileManagerActivity, "加载目录失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                binding.swipeRefresh.isRefreshing = false
+                Toast.makeText(this@FileManagerActivity, "加载目录失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -123,42 +137,75 @@ class FileManagerActivity : AppCompatActivity() {
     }
 
     private fun downloadFile(item: FileItem) {
-        val client = DeviceManager.adbClient ?: return
         Toast.makeText(this, "正在下载到本机下载目录...", Toast.LENGTH_SHORT).show()
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            var sync: com.toolbox.adbhelper.core.adb.AdbSync? = null
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+            if (client == null) {
+                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                sync = client.openSync()
-                val savedLocation = com.toolbox.adbhelper.core.utils.DownloadHelper.downloadToPublicDownloads(
-                    applicationContext,
-                    sync,
-                    item.path,
-                    item.name
-                )
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@FileManagerActivity, "下载完成，已保存至本机下载目录:\n$savedLocation", Toast.LENGTH_LONG).show()
+                val savedLocation = withContext(Dispatchers.IO) {
+                    val sync = client.openSync()
+                    try {
+                        com.toolbox.adbhelper.core.utils.DownloadHelper.downloadToPublicDownloads(
+                            applicationContext,
+                            sync,
+                            item.path,
+                            item.name
+                        )
+                    } finally {
+                        sync.close()
+                    }
                 }
+                Toast.makeText(this@FileManagerActivity, "下载完成，已保存至本机下载目录:\n$savedLocation", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            } finally {
-                sync?.close()
+                Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun deleteFile(item: FileItem) {
-        val client = DeviceManager.adbClient ?: return
         AlertDialog.Builder(this)
             .setTitle("删除确认")
             .setMessage("确定要永久删除 ${item.name} 吗？")
             .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch(Dispatchers.IO) {
-                    client.executeShell("rm -rf \"${item.path}\"")
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@FileManagerActivity, "已删除", Toast.LENGTH_SHORT).show()
+                lifecycleScope.launch {
+                    val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+                    if (client == null) {
+                        Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    withContext(Dispatchers.IO) {
+                        client.executeShell("rm -rf \"${item.path}\"")
+                    }
+                    Toast.makeText(this@FileManagerActivity, "已删除", Toast.LENGTH_SHORT).show()
+                    loadDirectory(currentPath)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showNewFolderDialog() {
+        val input = EditText(this).apply { hint = "文件夹名称" }
+        AlertDialog.Builder(this)
+            .setTitle("新建文件夹")
+            .setView(input)
+            .setPositiveButton("创建") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotEmpty()) {
+                    lifecycleScope.launch {
+                        val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+                        if (client == null) {
+                            Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        withContext(Dispatchers.IO) {
+                            client.executeShell("mkdir -p \"$currentPath/$name\"")
+                        }
                         loadDirectory(currentPath)
                     }
                 }
@@ -167,52 +214,34 @@ class FileManagerActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showNewFolderDialog() {
-        val client = DeviceManager.adbClient ?: return
-        val input = EditText(this).apply { hint = "文件夹名称" }
-        AlertDialog.Builder(this)
-            .setTitle("新建文件夹")
-            .setView(input)
-            .setPositiveButton("创建") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isNotEmpty()) {
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        client.executeShell("mkdir -p \"$currentPath/$name\"")
-                        withContext(Dispatchers.Main) {
-                            loadDirectory(currentPath)
-                        }
-                    }
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
     private fun uploadFileFromUri(uri: Uri) {
-        val client = DeviceManager.adbClient ?: return
         Toast.makeText(this, "正在上传文件...", Toast.LENGTH_SHORT).show()
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
+            if (client == null) {
+                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                val temp = File(cacheDir, "upload_temp")
-                contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(temp).use { output ->
-                        input.copyTo(output)
+                withContext(Dispatchers.IO) {
+                    val temp = File(cacheDir, "upload_temp")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(temp).use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    val remoteName = "upload_${System.currentTimeMillis()}"
+                    val sync = client.openSync()
+                    sync.pushFile(temp, "$currentPath/$remoteName")
+                    sync.close()
+                    temp.delete()
                 }
-                val remoteName = "upload_${System.currentTimeMillis()}"
-                val sync = client.openSync()
-                sync.pushFile(temp, "$currentPath/$remoteName")
-                sync.close()
-                temp.delete()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@FileManagerActivity, "上传成功！", Toast.LENGTH_SHORT).show()
-                    loadDirectory(currentPath)
-                }
+                Toast.makeText(this@FileManagerActivity, "上传成功！", Toast.LENGTH_SHORT).show()
+                loadDirectory(currentPath)
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@FileManagerActivity, "上传失败: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(this@FileManagerActivity, "上传失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }

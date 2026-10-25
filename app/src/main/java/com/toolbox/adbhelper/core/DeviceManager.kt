@@ -78,12 +78,29 @@ object DeviceManager {
         }
     }
 
+    suspend fun getOrReconnectClient(context: Context): AdbClient? {
+        val client = adbClient
+        if (client != null && client.isConnected) {
+            return client
+        }
+        if (!isExplicitDisconnect) {
+            loadLastDevice(context)
+            if (!lastEndpoint.isNullOrBlank()) {
+                val ok = tryReconnect(context)
+                if (ok) {
+                    return adbClient
+                }
+            }
+        }
+        return null
+    }
+
     suspend fun tryReconnect(context: Context, force: Boolean = false): Boolean = reconnectMutex.withLock {
         withContext(Dispatchers.IO) {
             if (!force && adbClient?.isConnected == true) {
                 // 发送快速 ping 探测连接真实性，防止底层 TCP 处于半关状态导致假在线
                 try {
-                    val ping = adbClient?.executeShell("echo ok", 1200)
+                    val ping = adbClient?.executeShell("echo ok", 2500)
                     if (ping?.contains("ok") == true) {
                         return@withContext true
                     }

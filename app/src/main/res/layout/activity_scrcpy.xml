@@ -218,23 +218,13 @@
                 app:tint="#FFFFFF" />
 
             <ImageButton
-                android:id="@+id/btnVolDown"
+                android:id="@+id/btnHeadset"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="音量减"
-                android:src="@drawable/ic_nav_vol_down"
-                app:tint="#FFFFFF" />
-
-            <ImageButton
-                android:id="@+id/btnVolUp"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="8dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="音量加"
-                android:src="@drawable/ic_nav_vol_up"
+                android:contentDescription="虚拟耳机（静音被控端外放）"
+                android:src="@drawable/ic_nav_headset"
                 app:tint="#FFFFFF" />
 
             <ImageButton

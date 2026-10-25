@@ -23,6 +23,15 @@ class TerminalActivity : AppCompatActivity() {
         initViews()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!DeviceManager.isConnected && !DeviceManager.isExplicitDisconnect) {
+            lifecycleScope.launch {
+                DeviceManager.getOrReconnectClient(this@TerminalActivity)
+            }
+        }
+    }
+
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
@@ -52,24 +61,21 @@ class TerminalActivity : AppCompatActivity() {
     }
 
     private fun executeCommand(command: String) {
-        val client = DeviceManager.adbClient
-        if (client == null) {
-            Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
-            return
-        }
-
         appendOutput("$ $command\n")
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@TerminalActivity)
+            if (client == null) {
+                appendOutput("Error: ADB 设备未连接或重连失败\n$ ")
+                Toast.makeText(this@TerminalActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                val output = client.executeShell(command)
-                withContext(Dispatchers.Main) {
-                    appendOutput(output + if (output.endsWith("\n")) "$ " else "\n$ ")
-                }
+                val output = withContext(Dispatchers.IO) { client.executeShell(command) }
+                appendOutput(output + if (output.endsWith("\n")) "$ " else "\n$ ")
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    appendOutput("Error: ${e.message}\n$ ")
-                }
+                appendOutput("Error: ${e.message}\n$ ")
             }
         }
     }

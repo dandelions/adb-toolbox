@@ -46,6 +46,18 @@ class AppManagerActivity : AppCompatActivity() {
         loadApps()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!DeviceManager.isConnected && !DeviceManager.isExplicitDisconnect) {
+            lifecycleScope.launch {
+                val client = DeviceManager.getOrReconnectClient(this@AppManagerActivity)
+                if (client != null && allApps.isEmpty()) {
+                    loadApps()
+                }
+            }
+        }
+    }
+
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
@@ -71,18 +83,22 @@ class AppManagerActivity : AppCompatActivity() {
     }
 
     private fun loadApps() {
-        val client = DeviceManager.adbClient ?: return
         binding.swipeRefresh.isRefreshing = true
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@AppManagerActivity)
+            if (client == null) {
+                binding.swipeRefresh.isRefreshing = false
+                Toast.makeText(this@AppManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                val list = client.getInstalledApps()
-                withContext(Dispatchers.Main) {
-                    allApps.clear()
-                    allApps.addAll(list)
-                    filterApps(binding.etSearch.text?.toString() ?: "")
-                    binding.swipeRefresh.isRefreshing = false
-                }
+                val list = withContext(Dispatchers.IO) { client.getInstalledApps() }
+                allApps.clear()
+                allApps.addAll(list)
+                filterApps(binding.etSearch.text?.toString() ?: "")
+                binding.swipeRefresh.isRefreshing = false
 
                 // 异步拉取远程设备的应用图标及真实标签并实时局部刷新
                 AppIconManager.syncRemoteIcons(applicationContext, client) { pkgName, label, _ ->
@@ -98,10 +114,8 @@ class AppManagerActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    binding.swipeRefresh.isRefreshing = false
-                    Toast.makeText(this@AppManagerActivity, "加载应用失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                binding.swipeRefresh.isRefreshing = false
+                Toast.makeText(this@AppManagerActivity, "加载应用失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -123,7 +137,6 @@ class AppManagerActivity : AppCompatActivity() {
     }
 
     private fun showAppOptions(app: AppItem) {
-        val client = DeviceManager.adbClient ?: return
         val options = arrayOf(
             "启动该应用",
             "提取并导出 APK",
@@ -138,46 +151,53 @@ class AppManagerActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(app.packageName)
             .setItems(options) { _, which ->
-                lifecycleScope.launch(Dispatchers.IO) {
-                    when (which) {
-                        0 -> client.executeShell("monkey -p ${app.packageName} -c android.intent.category.LAUNCHER 1")
-                        1 -> extractApk(app)
-                        2 -> {
-                            val r = client.uninstallApp(app.packageName, false)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "卸载结果: $r", Toast.LENGTH_SHORT).show()
-                                loadApps()
+                lifecycleScope.launch {
+                    val client = DeviceManager.getOrReconnectClient(this@AppManagerActivity)
+                    if (client == null) {
+                        Toast.makeText(this@AppManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    withContext(Dispatchers.IO) {
+                        when (which) {
+                            0 -> client.executeShell("monkey -p ${app.packageName} -c android.intent.category.LAUNCHER 1")
+                            1 -> extractApk(app)
+                            2 -> {
+                                val r = client.uninstallApp(app.packageName, false)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "卸载结果: $r", Toast.LENGTH_SHORT).show()
+                                    loadApps()
+                                }
                             }
-                        }
-                        3 -> {
-                            val r = client.uninstallApp(app.packageName, true)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "卸载结果: $r", Toast.LENGTH_SHORT).show()
-                                loadApps()
+                            3 -> {
+                                val r = client.uninstallApp(app.packageName, true)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "卸载结果: $r", Toast.LENGTH_SHORT).show()
+                                    loadApps()
+                                }
                             }
-                        }
-                        4 -> {
-                            val r = client.disableApp(app.packageName)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "停用结果: $r", Toast.LENGTH_SHORT).show()
+                            4 -> {
+                                val r = client.disableApp(app.packageName)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "停用结果: $r", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                        5 -> {
-                            val r = client.enableApp(app.packageName)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "启用结果: $r", Toast.LENGTH_SHORT).show()
+                            5 -> {
+                                val r = client.enableApp(app.packageName)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "启用结果: $r", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                        6 -> {
-                            val r = client.clearAppData(app.packageName)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "清除数据结果: $r", Toast.LENGTH_SHORT).show()
+                            6 -> {
+                                val r = client.clearAppData(app.packageName)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "清除数据结果: $r", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                        7 -> {
-                            val r = client.forceStop(app.packageName)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(this@AppManagerActivity, "已强制停止", Toast.LENGTH_SHORT).show()
+                            7 -> {
+                                val r = client.forceStop(app.packageName)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@AppManagerActivity, "已强制停止", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     }
@@ -188,7 +208,7 @@ class AppManagerActivity : AppCompatActivity() {
     }
 
     private suspend fun extractApk(app: AppItem) {
-        val client = DeviceManager.adbClient ?: return
+        val client = DeviceManager.getOrReconnectClient(this@AppManagerActivity) ?: return
         var sync: com.toolbox.adbhelper.core.adb.AdbSync? = null
         try {
             sync = client.openSync()
@@ -212,30 +232,34 @@ class AppManagerActivity : AppCompatActivity() {
     }
 
     private fun installApkFromUri(uri: Uri) {
-        val client = DeviceManager.adbClient ?: return
         Toast.makeText(this, "正在上传并安装 APK...", Toast.LENGTH_SHORT).show()
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch {
+            val client = DeviceManager.getOrReconnectClient(this@AppManagerActivity)
+            if (client == null) {
+                Toast.makeText(this@AppManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             try {
-                val tempFile = File(cacheDir, "install_temp.apk")
-                contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                val res = withContext(Dispatchers.IO) {
+                    val tempFile = File(cacheDir, "install_temp.apk")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    val r = client.installApk(tempFile)
+                    tempFile.delete()
+                    r
                 }
-                val res = client.installApk(tempFile)
-                tempFile.delete()
-                withContext(Dispatchers.Main) {
-                    AlertDialog.Builder(this@AppManagerActivity)
-                        .setTitle("安装结果")
-                        .setMessage(res)
-                        .setPositiveButton("确定") { _, _ -> loadApps() }
-                        .show()
-                }
+                AlertDialog.Builder(this@AppManagerActivity)
+                    .setTitle("安装结果")
+                    .setMessage(res)
+                    .setPositiveButton("确定") { _, _ -> loadApps() }
+                    .show()
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@AppManagerActivity, "安装失败: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(this@AppManagerActivity, "安装失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }

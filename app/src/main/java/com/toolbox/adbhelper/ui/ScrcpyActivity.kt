@@ -24,6 +24,7 @@ import com.toolbox.adbhelper.core.model.ScrcpyConfig
 import com.toolbox.adbhelper.core.model.ScrcpyPresets
 import com.toolbox.adbhelper.core.scrcpy.AudioPlaybackService
 import com.toolbox.adbhelper.core.scrcpy.ScrcpyManager
+import com.toolbox.adbhelper.core.scrcpy.VirtualHeadsetManager
 import com.toolbox.adbhelper.databinding.ActivityScrcpyBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
 import kotlinx.coroutines.*
@@ -196,8 +197,22 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.btnBack.setOnClickListener { lifecycleScope.launch { manager.sendBack() } }
         binding.btnHome.setOnClickListener { lifecycleScope.launch { manager.sendHome() } }
         binding.btnRecent.setOnClickListener { lifecycleScope.launch { manager.sendAppSwitch() } }
-        binding.btnVolUp.setOnClickListener { lifecycleScope.launch { manager.sendVolumeUp() } }
-        binding.btnVolDown.setOnClickListener { lifecycleScope.launch { manager.sendVolumeDown() } }
+
+        // 虚拟耳机（控制被控端扬声器物理静音/恢复）
+        binding.btnHeadset.setOnClickListener {
+            val adbClient = DeviceManager.adbClient
+            if (adbClient == null || !adbClient.isConnected) {
+                Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            lifecycleScope.launch {
+                val newState = VirtualHeadsetManager.toggle(adbClient)
+                updateHeadsetButtonUI(newState)
+                val tip = if (newState) "虚拟耳机已接入：被控端外放已静音" else "虚拟耳机已拔出：被控端外放已恢复"
+                Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
+            }
+        }
+        updateHeadsetButtonUI(VirtualHeadsetManager.isPluggedIn)
 
         // 熄屏控制
         binding.btnScreenOff.setOnClickListener {
@@ -1280,6 +1295,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .show()
     }
 
+    private fun updateHeadsetButtonUI(isPluggedIn: Boolean) {
+        if (isPluggedIn) {
+            binding.btnHeadset.setColorFilter(android.graphics.Color.parseColor("#4CAF50"))
+            binding.btnHeadset.contentDescription = "虚拟耳机（已接入，被控端静音）"
+        } else {
+            binding.btnHeadset.setColorFilter(android.graphics.Color.WHITE)
+            binding.btnHeadset.contentDescription = "虚拟耳机（已断开，被控端外放）"
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         backgroundTimeoutJob?.cancel()
@@ -1288,6 +1313,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         reconnectJob = null
         AudioPlaybackService.stop(this)
         AudioPlaybackService.onServiceStopRequested = null
+        val client = DeviceManager.adbClient
+        if (VirtualHeadsetManager.isPluggedIn && client != null && client.isConnected) {
+            Thread({
+                try {
+                    runBlocking {
+                        VirtualHeadsetManager.plugOut(client)
+                    }
+                    VirtualHeadsetManager.reset()
+                } catch (_: Exception) {}
+            }, "VirtualHeadsetCleanup").start()
+        }
         if (config.muteDeviceAudio) {
             try {
                 scrcpyManager?.setDeviceMuted(false)

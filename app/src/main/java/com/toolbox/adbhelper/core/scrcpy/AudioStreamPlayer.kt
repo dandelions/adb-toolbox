@@ -49,24 +49,10 @@ class AudioStreamPlayer(private val context: Context) {
     fun isPlaying(): Boolean = isPlaying.get()
 
     /**
-     * 动态设置被控机外放静音/恢复
+     * 动态设置被控机外放静音/恢复（遵循用户需求，不强制篡改系统物理音量）
      */
     fun setDeviceMuted(client: AdbClient?, muted: Boolean) {
-        val targetClient = client ?: lastAdbClient ?: return
         isDeviceMuted = muted
-        Thread({
-            try {
-                if (muted) {
-                    targetClient.executeShell("cmd media_session volume --stream 3 --set 1 2>/dev/null; media volume --stream 3 --set 1 2>/dev/null", 2000)
-                    Log.i(TAG, "已设置被控端微外放音量")
-                } else {
-                    targetClient.executeShell("cmd audio set-volume-key-mute 3 0 2>/dev/null; cmd media_session volume --stream 3 --set 10 2>/dev/null; media volume --stream 3 --set 10 2>/dev/null; input keyevent 24 24 24 2>/dev/null", 2000)
-                    Log.i(TAG, "已恢复被控端正常媒体外放音量")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "设置对端静音失败: ${e.message}")
-            }
-        }, "MuteDeviceThread").start()
     }
 
     /**
@@ -86,27 +72,14 @@ class AudioStreamPlayer(private val context: Context) {
         this@AudioStreamPlayer.audioGain = gain
 
         try {
-            // 确保被控端音量正常，解除此前残留的静音状态
-            ensureDeviceVolumeNormal(adbClient)
-
-            if (muteDevice) {
-                setDeviceMuted(adbClient, true)
-            }
-
             // 模式 3: Sndcpy 伴侣模式 (Android 10+ 官方稳定系统内录，全机型支持)
             if (audioSource == 3) {
                 startSndcpy(adbClient)
-                if (muteDevice) {
-                    setDeviceMuted(adbClient, true)
-                }
                 return@withContext
             }
 
             // 模式 0/1/2: 免安装 AudioForwarder 模式
             startAudioForwarder(adbClient, audioSource)
-            if (muteDevice) {
-                setDeviceMuted(adbClient, true)
-            }
 
         } catch (e: Exception) {
             val err = "音频转发启动失败: ${e.message}"
@@ -114,19 +87,6 @@ class AudioStreamPlayer(private val context: Context) {
             onStatus?.invoke(err, true)
             stop()
         }
-    }
-
-    private fun ensureDeviceVolumeNormal(client: AdbClient) {
-        Thread({
-            try {
-                val cmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
-                        "cmd media_session volume --stream 3 --set 10 2>/dev/null; " +
-                        "media volume --stream 3 --set 10 2>/dev/null; " +
-                        "settings put system volume_music 10 2>/dev/null; " +
-                        "input keyevent 24 24 24 2>/dev/null"
-                client.executeShell(cmd, 2500)
-            } catch (_: Exception) {}
-        }, "RestoreVolumeThread").start()
     }
 
     /**
