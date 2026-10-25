@@ -1,6 +1,8 @@
 package com.toolbox.adbhelper.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
@@ -28,6 +30,7 @@ import com.toolbox.adbhelper.core.scrcpy.AudioPlaybackService
 import com.toolbox.adbhelper.core.scrcpy.ScrcpyManager
 import com.toolbox.adbhelper.core.scrcpy.VirtualHeadsetManager
 import com.toolbox.adbhelper.databinding.ActivityScrcpyBinding
+import com.toolbox.adbhelper.databinding.DialogClipboardTransferBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
 import kotlinx.coroutines.*
 
@@ -1391,6 +1394,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val headsetAction = if (VirtualHeadsetManager.isPluggedIn) "🎧 拔出虚拟耳机 (恢复外放)" else "🎧 接入虚拟耳机 (静音对端外放)"
         val fullscreenAction = if (config.isFullscreen) "🔲 退出全屏显示" else "🔲 切换全屏显示"
         val items = arrayOf(
+            "📋 剪贴板传输",
             headsetAction,
             fullscreenAction,
             "📱 被控端熄屏/亮屏",
@@ -1403,7 +1407,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .setTitle("控制菜单")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> {
+                    0 -> showClipboardTransferDialog()
+                    1 -> {
                         val adbClient = DeviceManager.adbClient
                         if (adbClient == null || !adbClient.isConnected) {
                             Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
@@ -1418,13 +1423,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
                         }
                     }
-                    1 -> {
+                    2 -> {
                         config.isFullscreen = !config.isFullscreen
                         applyFullscreen(config.isFullscreen)
                         saveConfig()
                     }
-                    2 -> toggleDeviceScreen()
-                    3 -> {
+                    3 -> toggleDeviceScreen()
+                    4 -> {
                         config.navPosition = NavPosition.BOTTOM
                         isFabMovedByUser = false
                         binding.fabQuickMenu.translationX = 0f
@@ -1433,7 +1438,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         saveConfig()
                         Toast.makeText(this, "已重置控制栏与悬浮球位置", Toast.LENGTH_SHORT).show()
                     }
-                    4 -> {
+                    5 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {
                             userSelectedFallback = true
                             Toast.makeText(this, "正在切换至兼容截图投屏模式...", Toast.LENGTH_SHORT).show()
@@ -1444,11 +1449,146 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             startStreaming()
                         }
                     }
-                    5 -> showSettingsDialog()
-                    6 -> finish()
+                    6 -> showSettingsDialog()
+                    7 -> finish()
                 }
             }
             .show()
+    }
+
+    private fun showClipboardTransferDialog() {
+        val dialogBinding = DialogClipboardTransferBinding.inflate(layoutInflater)
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .create()
+
+        val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+
+        fun getHostClipboardText(): String {
+            val clip = clipboardManager?.primaryClip
+            return if (clip != null && clip.itemCount > 0) {
+                clip.getItemAt(0).coerceToText(this).toString()
+            } else {
+                ""
+            }
+        }
+
+        fun refreshDeviceClipboardUI() {
+            dialogBinding.progressDeviceClip.visibility = View.VISIBLE
+            dialogBinding.btnRefreshDeviceClip.isEnabled = false
+            lifecycleScope.launch {
+                val text = scrcpyManager?.getDeviceClipboard() ?: ""
+                dialogBinding.progressDeviceClip.visibility = View.GONE
+                dialogBinding.btnRefreshDeviceClip.isEnabled = true
+                dialogBinding.etDeviceText.setText(text)
+                if (text.isEmpty()) {
+                    Toast.makeText(this@ScrcpyActivity, "被控机剪贴板为空或未获取到内容", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // 初始化主控机文本输入框
+        val initialHostText = getHostClipboardText()
+        if (initialHostText.isNotEmpty()) {
+            dialogBinding.etHostText.setText(initialHostText)
+        }
+
+        // 初始化被控机文本展示框
+        val cachedDeviceText = scrcpyManager?.lastDeviceClipboard ?: ""
+        if (cachedDeviceText.isNotEmpty()) {
+            dialogBinding.etDeviceText.setText(cachedDeviceText)
+        }
+        // 打开时自动向被控机刷新最新内容
+        refreshDeviceClipboardUI()
+
+        // 监听对端剪贴板实时推送
+        val prevListener = scrcpyManager?.onDeviceClipboardChanged
+        scrcpyManager?.onDeviceClipboardChanged = { newText ->
+            runOnUiThread {
+                if (dialog.isShowing) {
+                    dialogBinding.etDeviceText.setText(newText)
+                }
+            }
+            prevListener?.invoke(newText)
+        }
+        dialog.setOnDismissListener {
+            scrcpyManager?.onDeviceClipboardChanged = prevListener
+        }
+
+        // 按钮交互：读取本机剪贴板
+        dialogBinding.btnHostReadClipboard.setOnClickListener {
+            val text = getHostClipboardText()
+            if (text.isNotEmpty()) {
+                dialogBinding.etHostText.setText(text)
+                Toast.makeText(this, "已读取本机剪贴板内容", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "本机剪贴板当前为空", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 按钮交互：清空输入框
+        dialogBinding.btnHostClear.setOnClickListener {
+            dialogBinding.etHostText.setText("")
+        }
+
+        // 按钮交互：仅发送到被控机剪贴板
+        dialogBinding.btnSendToDevice.setOnClickListener {
+            val text = dialogBinding.etHostText.text?.toString().orEmpty()
+            if (text.isEmpty()) {
+                Toast.makeText(this, "发送内容不能为空", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            lifecycleScope.launch {
+                val ok = scrcpyManager?.setDeviceClipboard(text, paste = false) == true
+                if (ok) {
+                    Toast.makeText(this@ScrcpyActivity, "已成功写入被控机剪贴板", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@ScrcpyActivity, "写入被控机剪贴板失败，请检查连接", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // 按钮交互：发送并立即粘贴
+        dialogBinding.btnSendAndPaste.setOnClickListener {
+            val text = dialogBinding.etHostText.text?.toString().orEmpty()
+            if (text.isEmpty()) {
+                Toast.makeText(this, "发送内容不能为空", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            lifecycleScope.launch {
+                val ok = scrcpyManager?.setDeviceClipboard(text, paste = true) == true
+                if (ok) {
+                    Toast.makeText(this@ScrcpyActivity, "已写入被控机并执行粘贴", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                } else {
+                    Toast.makeText(this@ScrcpyActivity, "发送或粘贴失败，请检查连接", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // 按钮交互：刷新被控机剪贴板
+        dialogBinding.btnRefreshDeviceClip.setOnClickListener {
+            refreshDeviceClipboardUI()
+        }
+
+        // 按钮交互：复制被控机剪贴板到本机
+        dialogBinding.btnCopyDeviceToHost.setOnClickListener {
+            val text = dialogBinding.etDeviceText.text?.toString().orEmpty()
+            if (text.isEmpty()) {
+                Toast.makeText(this, "被控机剪贴板内容为空", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val clip = ClipData.newPlainText("Scrcpy Remote Clip", text)
+            clipboardManager?.setPrimaryClip(clip)
+            Toast.makeText(this, "已复制到本机剪贴板", Toast.LENGTH_SHORT).show()
+        }
+
+        // 按钮交互：关闭
+        dialogBinding.btnCloseClipboardDialog.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     private fun showAudioSourceQuickDialog() {

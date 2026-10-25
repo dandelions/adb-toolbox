@@ -13,9 +13,11 @@ import android.view.Surface
 import com.toolbox.adbhelper.core.adb.AdbClient
 import com.toolbox.adbhelper.core.adb.AdbStream
 import com.toolbox.adbhelper.core.model.ScrcpyConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -42,6 +44,13 @@ class ScrcpyManager(
     private val controlQueue = LinkedBlockingQueue<ByteArray>()
     @Volatile
     private var controlThread: Thread? = null
+    @Volatile
+    private var controlReaderThread: Thread? = null
+    private val _deviceClipboard = java.util.concurrent.atomic.AtomicReference<String>("")
+    val lastDeviceClipboard: String get() = _deviceClipboard.get()
+    @Volatile
+    private var getClipboardDeferred: CompletableDeferred<String>? = null
+    var onDeviceClipboardChanged: ((String) -> Unit)? = null
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
     @Volatile
@@ -924,7 +933,9 @@ class ScrcpyManager(
 
     private fun startControlThread(stream: AdbStream) {
         controlThread?.interrupt()
+        controlReaderThread?.interrupt()
         controlQueue.clear()
+
         controlThread = Thread({
             try {
                 val out = stream.outputStream
@@ -943,6 +954,38 @@ class ScrcpyManager(
             priority = Thread.MAX_PRIORITY
             start()
         }
+
+        controlReaderThread = Thread({
+            try {
+                val din = java.io.DataInputStream(stream.inputStream)
+                while (!Thread.currentThread().isInterrupted && isStreaming.get() && !stream.isClosed()) {
+                    val type = din.readByte().toInt()
+                    if (type == 0) { // TYPE_CLIPBOARD = 0
+                        val len = din.readInt()
+                        if (len in 0..1048576) {
+                            val buf = ByteArray(len)
+                            din.readFully(buf)
+                            val text = String(buf, java.nio.charset.StandardCharsets.UTF_8)
+                            Log.d(TAG, "Received clipboard from scrcpy device: ${text.take(30)}... (${text.length} chars)")
+                            _deviceClipboard.set(text)
+                            getClipboardDeferred?.complete(text)
+                            getClipboardDeferred = null
+                            onDeviceClipboardChanged?.invoke(text)
+                        }
+                    } else {
+                        Log.d(TAG, "Received unknown control message type: $type")
+                    }
+                }
+            } catch (_: java.io.EOFException) {
+            } catch (_: java.net.SocketException) {
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.w(TAG, "Control reader loop error: ${e.message}")
+            }
+        }, "ScrcpyControlReader").apply {
+            isDaemon = true
+            start()
+        }
     }
 
     private fun stopControlThread() {
@@ -950,6 +993,14 @@ class ScrcpyManager(
             controlThread?.interrupt()
         } catch (_: Exception) {}
         controlThread = null
+
+        try {
+            controlReaderThread?.interrupt()
+        } catch (_: Exception) {}
+        controlReaderThread = null
+
+        getClipboardDeferred?.cancel()
+        getClipboardDeferred = null
         controlQueue.clear()
     }
 
@@ -1175,4 +1226,77 @@ class ScrcpyManager(
     suspend fun sendPower() = sendKey(26)
     suspend fun sendVolumeUp() = sendKey(24)
     suspend fun sendVolumeDown() = sendKey(25)
+
+    /**
+     * 发送文本到被控机剪贴板，支持可选自动粘贴
+     */
+    suspend fun setDeviceClipboard(text: String, paste: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            try {
+                val textBytes = text.toByteArray(Charsets.UTF_8)
+                val buf = ByteBuffer.allocate(1 + 1 + 4 + textBytes.size)
+                buf.put(9.toByte()) // TYPE_SET_CLIPBOARD = 9
+                buf.put(if (paste) 1.toByte() else 0.toByte())
+                buf.putInt(textBytes.size)
+                buf.put(textBytes)
+                controlQueue.offer(buf.array())
+                Log.i(TAG, "Sent clipboard to device via scrcpy control (size=${textBytes.size}, paste=$paste)")
+                return@withContext true
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send clipboard via scrcpy control stream: ${e.message}")
+            }
+        }
+
+        // 降级兜底方案：ADB Shell cmd clipboard set-text
+        try {
+            val escaped = text.replace("'", "'\\''")
+            adbClient.executeShell("cmd clipboard set-text '$escaped'")
+            if (paste) {
+                adbClient.executeShell("input keyevent 279") // KEYCODE_PASTE
+            }
+            Log.i(TAG, "Set clipboard via adb shell fallback")
+            return@withContext true
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback set clipboard failed: ${e.message}")
+            return@withContext false
+        }
+    }
+
+    /**
+     * 主动向被控机请求获取当前剪贴板文本
+     */
+    suspend fun getDeviceClipboard(): String? = withContext(Dispatchers.IO) {
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            try {
+                val deferred = CompletableDeferred<String>()
+                getClipboardDeferred = deferred
+                controlQueue.offer(byteArrayOf(8.toByte())) // TYPE_GET_CLIPBOARD = 8
+                val result = withTimeoutOrNull(1500) {
+                    deferred.await()
+                }
+                if (result != null) {
+                    return@withContext result
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Get clipboard via control stream failed or timeout: ${e.message}")
+            } finally {
+                getClipboardDeferred = null
+            }
+        }
+
+        // 降级兜底方案：ADB Shell cmd clipboard get-text
+        try {
+            val out = adbClient.executeShell("cmd clipboard get-text")
+            val trimmed = out.trimEnd('\r', '\n')
+            if (trimmed.isNotEmpty()) {
+                _deviceClipboard.set(trimmed)
+                return@withContext trimmed
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback get clipboard failed: ${e.message}")
+        }
+        return@withContext _deviceClipboard.get().ifEmpty { null }
+    }
 }
