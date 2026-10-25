@@ -257,7 +257,6 @@ class ScrcpyManager(
         val maxFps = if (config.maxFps > 0) config.maxFps else 60
 
         if (config.enableAudio) {
-            val audioSource = config.audioSource
             val qualityMode = config.audioQualityMode
             val gain = config.audioGain
             val muteDevice = config.muteDeviceAudio
@@ -267,8 +266,6 @@ class ScrcpyManager(
                 existingPlayer.audioQualityMode = qualityMode
                 existingPlayer.setDeviceMuted(adbClient, muteDevice)
                 Log.i(TAG, "复用已有活跃音频流，动态同步增益与静音配置")
-            } else {
-                startAudioStream(audioSource, qualityMode, gain, muteDevice)
             }
         }
 

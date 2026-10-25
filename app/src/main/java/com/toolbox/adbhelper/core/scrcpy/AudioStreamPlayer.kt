@@ -133,7 +133,7 @@ class AudioStreamPlayer(private val context: Context) {
      * 通过 Sndcpy 伴侣应用捕获纯系统声音 (Android 10+)
      */
     private suspend fun startSndcpy(adbClient: AdbClient) {
-        onStatus?.invoke("正在连接 Sndcpy 音频服务...", false)
+        onStatus?.invoke("准备 Sndcpy 系统内录组件...", false)
 
         // 1. 优先尝试直连已有服务 (若被控端已有 Sndcpy 正在运行或等待连接中，则无需重新拉起弹窗)
         var stream: AdbStream? = null
@@ -144,7 +144,7 @@ class AudioStreamPlayer(private val context: Context) {
                 Log.i(TAG, "检测到对端已有 Sndcpy 等待连接中，直连握手成功！")
                 break
             } catch (_: Exception) {
-                Thread.sleep(200)
+                Thread.sleep(150)
             }
         }
 
@@ -156,18 +156,13 @@ class AudioStreamPlayer(private val context: Context) {
                 onStatus?.invoke("正在向被控端安装 Sndcpy 录音组件...", false)
                 val installSuccess = installSndcpyApk(adbClient)
                 if (!installSuccess) {
-                    onStatus?.invoke("Sndcpy 组件安装失败，正在切换至原生系统内录...", false)
+                    onStatus?.invoke("Sndcpy 组件安装失败，正在切换至免安装系统内录...", false)
                     startAudioForwarder(adbClient, 0)
                     return
                 }
             }
 
-            // 唤醒屏幕 (保留已有服务状态，绝不盲目 force-stop 扼杀已就绪的等待服务)
-            try {
-                adbClient.executeShell("input keyevent 224 2>/dev/null")
-            } catch (_: Exception) {}
-
-            // 预先尝试授权 PROJECT_MEDIA 与 RECORD_AUDIO
+            // 预先尝试静默授权 PROJECT_MEDIA 与 RECORD_AUDIO
             try {
                 adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
                 adbClient.executeShell("appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
@@ -176,34 +171,21 @@ class AudioStreamPlayer(private val context: Context) {
             } catch (_: Exception) {}
 
             // 启动 Sndcpy 捕获服务
-            onStatus?.invoke("正在唤醒 Sndcpy 服务 (若被控端提示等待或弹出授权请允许)...", false)
+            onStatus?.invoke("正在唤醒 Sndcpy 服务 (若屏幕弹出录屏/录音授权请点击允许)...", false)
             adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
 
-            // 异步尝试自动确认系统录屏/录音安全弹窗 (右键定位“立即开始/允许”并回车确认)
-            Thread({
-                for (step in 1..4) {
-                    if (!isPlaying.get() || audioStream != null) break
-                    try {
-                        Thread.sleep(800)
-                        if (!isPlaying.get() || audioStream != null) break
-                        adbClient.executeShell("input keyevent 22 && input keyevent 66 2>/dev/null")
-                    } catch (_: Exception) {}
-                }
-            }, "AutoAcceptProjectionThread").start()
-
-            // 充裕时间轮询等待连接 localabstract:sndcpy (60 次，每次 350ms，总计约 22 秒)
-            for (i in 1..60) {
+            // 经典充裕时间轮询等待连接 localabstract:sndcpy
+            for (i in 1..40) {
                 if (!isPlaying.get()) break
                 try {
                     stream = adbClient.connection.openStream("localabstract:sndcpy", 1200)
                     Log.i(TAG, "Sndcpy 服务已成功连接！")
                     break
                 } catch (_: Exception) {
-                    if (i % 3 == 0) {
-                        val passedSec = (i * 350) / 1000
-                        onStatus?.invoke("等待 Sndcpy 握手连接 (${passedSec}s/22s，被控端显示等待请保持)...", false)
+                    if (i % 4 == 0) {
+                        onStatus?.invoke("等待 Sndcpy 授权握手 (${i / 4}s/10s，若有弹窗请点击允许)...", false)
                     }
-                    Thread.sleep(350)
+                    Thread.sleep(250)
                 }
             }
         }

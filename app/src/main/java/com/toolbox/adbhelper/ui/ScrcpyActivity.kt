@@ -853,6 +853,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             scrcpyManager?.turnScreenOff()
                         }
                     }
+
+                    // 正常远程后平稳拉起音频流（错峰启动，杜绝底层并发争抢，且弹窗在主控端立即可见可点）
+                    if (config.enableAudio && scrcpyManager?.isAudioPlaying() != true) {
+                        scrcpyManager?.startAudioStream(
+                            config.audioSource,
+                            config.audioQualityMode,
+                            config.audioGain,
+                            config.muteDeviceAudio
+                        )
+                    }
                 }
             },
             onError = { errMsg ->
