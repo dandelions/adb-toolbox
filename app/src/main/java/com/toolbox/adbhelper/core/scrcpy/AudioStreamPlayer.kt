@@ -130,13 +130,19 @@ class AudioStreamPlayer(private val context: Context) {
             onStatus?.invoke("正在向被控端安装 Sndcpy 录音组件...", false)
             val installSuccess = installSndcpyApk(adbClient)
             if (!installSuccess) {
-                onStatus?.invoke("Sndcpy 组件安装失败，正尝试切换至麦克风...", true)
-                startAudioForwarder(adbClient, 1)
+                onStatus?.invoke("Sndcpy 组件安装失败，正在切换至原生系统内录...", false)
+                startAudioForwarder(adbClient, 0)
                 return
             }
         }
 
-        // 2. 授权 PROJECT_MEDIA (截取系统音频权限)
+        // 2. 清理旧实例并唤醒屏幕
+        try {
+            adbClient.executeShell("am force-stop $SNDCPY_PACKAGE 2>/dev/null")
+            adbClient.executeShell("input keyevent 224 2>/dev/null")
+        } catch (_: Exception) {}
+
+        // 3. 预先授予 PROJECT_MEDIA 与 RECORD_AUDIO 权限
         try {
             adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
             adbClient.executeShell("appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null")
@@ -144,16 +150,29 @@ class AudioStreamPlayer(private val context: Context) {
             adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE RECORD_AUDIO allow 2>/dev/null")
         } catch (_: Exception) {}
 
-        // 3. 启动 Sndcpy 捕获服务
-        onStatus?.invoke("正在唤醒 Sndcpy 服务 (若被控端弹出录屏/录音授权请点击允许)...", false)
+        // 4. 启动 Sndcpy 捕获服务
+        onStatus?.invoke("正在唤醒 Sndcpy 服务并自动处理授权...", false)
         adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
 
-        // 4. 连接 localabstract:sndcpy
+        // 5. 异步尝试自动确认系统录屏/录音安全弹窗 (模拟右键移动并回车确认“立即开始”)
+        Thread({
+            for (step in 1..4) {
+                if (!isPlaying.get() || audioStream != null) break
+                try {
+                    Thread.sleep(600)
+                    adbClient.executeShell("input keyevent 22 && input keyevent 66 2>/dev/null")
+                    Thread.sleep(300)
+                    adbClient.executeShell("input keyevent 20 && input keyevent 66 2>/dev/null")
+                } catch (_: Exception) {}
+            }
+        }, "AutoAcceptProjectionThread").start()
+
+        // 6. 连接 localabstract:sndcpy
         var stream: AdbStream? = null
-        for (i in 0 until 40) {
+        for (i in 0 until 30) {
             if (!isPlaying.get()) break
             try {
-                stream = adbClient.connection.openStream("localabstract:sndcpy", 1000)
+                stream = adbClient.connection.openStream("localabstract:sndcpy", 800)
                 break
             } catch (_: Exception) {
                 Thread.sleep(150)
@@ -161,10 +180,9 @@ class AudioStreamPlayer(private val context: Context) {
         }
 
         if (stream == null) {
-            val err = "未能连接 sndcpy 服务 (请确认被控端屏幕已允许音频捕获弹窗)"
-            Log.w(TAG, err)
-            onStatus?.invoke(err, true)
-            stop()
+            Log.w(TAG, "未能连接 Sndcpy 服务 (可能系统未允许弹窗)，自动降级至系统原生免弹窗音频内录")
+            onStatus?.invoke("Sndcpy 授权未就绪，已自动平滑降级至免弹窗系统内录...", false)
+            startAudioForwarder(adbClient, 0)
             return
         }
         audioStream = stream
@@ -215,6 +233,7 @@ class AudioStreamPlayer(private val context: Context) {
         onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
 
         try {
+            adbClient.executeShell("pkill -9 -f com.toolbox.adbhelper.server.AudioForwarder 2>/dev/null")
             adbClient.executeShell("input keyevent 224") // 唤醒屏幕
             adbClient.executeShell("cmd appops set 2000 RECORD_AUDIO allow 2>/dev/null")
             adbClient.executeShell("cmd appops set com.android.shell RECORD_AUDIO allow 2>/dev/null")

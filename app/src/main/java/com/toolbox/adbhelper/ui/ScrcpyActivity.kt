@@ -165,7 +165,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
-        config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 3) // 默认采用 Sndcpy 稳定内录
+        config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0) // 默认采用免安装免弹窗的系统原生内录优先
         config.audioQualityMode = prefs.getInt(KEY_AUDIO_QUALITY, 0) // 默认高保真音乐听歌模式
         config.muteDeviceAudio = prefs.getBoolean(KEY_MUTE_DEVICE, false) // 默认不强制被控端静音
         config.backgroundAudio = prefs.getBoolean(KEY_BG_AUDIO, true) // 默认开启后台听歌

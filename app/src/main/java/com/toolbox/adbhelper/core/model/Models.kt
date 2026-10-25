@@ -77,7 +77,7 @@ data class ScrcpyConfig(
     var navPosition: NavPosition = NavPosition.BOTTOM,
     var isFullscreen: Boolean = false,
     var enableAudio: Boolean = true, // 声音传输 (音频转发，默认开启)
-    var audioSource: Int = 3, // 音频源：3=SNDCPY伴侣系统内录(Android 10+全机型支持)，0=自动(系统内录优先)，1=麦克风(MIC)，2=语音识别
+    var audioSource: Int = 0, // 音频源：0=自动/原生系统内录(推荐，免安装免弹窗)，3=SNDCPY伴侣系统内录(Android 10+)，1=麦克风(MIC)，2=语音识别
     var audioQualityMode: Int = 0, // 音质模式：0=高保真音乐听歌模式(大缓冲防爆音)，1=极速低延迟模式(游戏控制)
     var muteDeviceAudio: Boolean = false, // 被控机静音外放(仅传远端发声)
     var backgroundAudio: Boolean = true, // 主控机按 Home 键切后台继续播放音频(不传画面)
@@ -111,8 +111,8 @@ object ScrcpyPresets {
     }
 
     val AUDIO_SOURCE_OPTIONS = listOf(
-        ScrcpyOption("Sndcpy 系统声音内录 (推荐，Android 10+ 全兼容)", 3),
-        ScrcpyOption("自动/原生系统内录 (AudioPolicy/Submix)", 0),
+        ScrcpyOption("自动/原生系统内录 (推荐，免安装免弹窗)", 0),
+        ScrcpyOption("Sndcpy 系统伴侣内录 (备选，Android 10+ 需弹窗)", 3),
         ScrcpyOption("被控端麦克风 (MIC，采集环境音/扬声器外放)", 1),
         ScrcpyOption("语音识别音源 (VOICE_RECOGNITION)", 2)
     )
