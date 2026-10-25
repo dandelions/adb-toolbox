@@ -22,6 +22,7 @@ import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.NavPosition
 import com.toolbox.adbhelper.core.model.ScrcpyConfig
 import com.toolbox.adbhelper.core.model.ScrcpyPresets
+import com.toolbox.adbhelper.core.scrcpy.AudioPlaybackService
 import com.toolbox.adbhelper.core.scrcpy.ScrcpyManager
 import com.toolbox.adbhelper.databinding.ActivityScrcpyBinding
 import com.toolbox.adbhelper.databinding.DialogScrcpySettingsBinding
@@ -77,6 +78,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
         private const val KEY_AUDIO_FORWARD = "scrcpy_audio_forward"
         private const val KEY_AUDIO_SOURCE = "scrcpy_audio_source"
+        private const val KEY_AUDIO_QUALITY = "scrcpy_audio_quality"
+        private const val KEY_MUTE_DEVICE = "scrcpy_mute_device"
+        private const val KEY_BG_AUDIO = "scrcpy_bg_audio"
+        private const val KEY_AUDIO_GAIN = "scrcpy_audio_gain"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,6 +118,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     updateAudioDiag(msg, isError)
                 }
+            }
+        }
+
+        AudioPlaybackService.onServiceStopRequested = {
+            runOnUiThread {
+                scrcpyManager?.stopAudioStream()
+                Toast.makeText(this@ScrcpyActivity, "后台音频播放已停止", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -154,6 +166,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
         config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 3) // 默认采用 Sndcpy 稳定内录
+        config.audioQualityMode = prefs.getInt(KEY_AUDIO_QUALITY, 0) // 默认高保真音乐听歌模式
+        config.muteDeviceAudio = prefs.getBoolean(KEY_MUTE_DEVICE, false) // 默认不强制被控端静音
+        config.backgroundAudio = prefs.getBoolean(KEY_BG_AUDIO, true) // 默认开启后台听歌
+        config.audioGain = prefs.getFloat(KEY_AUDIO_GAIN, 1.0f) // 默认 1.0x 正常音量
     }
 
     private fun saveConfig() {
@@ -166,6 +182,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .putBoolean(KEY_SCREEN_OFF, config.turnScreenOff)
             .putBoolean(KEY_AUDIO_FORWARD, config.enableAudio)
             .putInt(KEY_AUDIO_SOURCE, config.audioSource)
+            .putInt(KEY_AUDIO_QUALITY, config.audioQualityMode)
+            .putBoolean(KEY_MUTE_DEVICE, config.muteDeviceAudio)
+            .putBoolean(KEY_BG_AUDIO, config.backgroundAudio)
+            .putFloat(KEY_AUDIO_GAIN, config.audioGain)
             .apply()
     }
 
@@ -513,7 +533,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
 
-        // 从后台切回前台时，主动检查连接并恢复推流
+        // 从后台切回前台时，关闭常驻通知，主动检查连接并恢复推流
+        AudioPlaybackService.stop(this)
         checkAndResumeStream()
     }
 
@@ -525,14 +546,23 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onStop() {
         super.onStop()
         isActivityStopped = true
-        // 用户按 Home 键或切换到其他 App 后，底层 Surface 会被系统销毁。
-        // 为保证无缝恢复，短时间切换保持推流会话与解码器，仅暂停向销毁的 Surface 写入；
-        // 若切到后台超过 60 秒，则安全释放硬件推流以节约被控机和本机的电池与网络。
         backgroundTimeoutJob?.cancel()
-        backgroundTimeoutJob = lifecycleScope.launch {
-            delay(60000)
-            if (isActivityStopped) {
-                stopStreaming()
+        backgroundTimeoutJob = null
+
+        val isAudioActive = scrcpyManager?.isAudioPlaying() == true
+        if (config.enableAudio && config.backgroundAudio && isAudioActive) {
+            // 用户开启了后台听歌：仅暂停画面视频推流以极大省电省流，持续保持被控端音频传输与播放
+            scrcpyManager?.stopVideoStream()
+            streamJob?.cancel()
+            watchdogJob?.cancel()
+            AudioPlaybackService.start(this)
+        } else {
+            // 未开启后台音频或音频未激活，保持原有的超时保护策略
+            backgroundTimeoutJob = lifecycleScope.launch {
+                delay(60000)
+                if (isActivityStopped) {
+                    stopStreaming()
+                }
             }
         }
     }
@@ -1049,10 +1079,32 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             selectedAudioSource = ScrcpyPresets.AUDIO_SOURCE_OPTIONS[position].value
         }
 
-        // 6. 初始化开关
+        // 6. 初始化音质品质模式下拉
+        var selectedQualityMode = config.audioQualityMode
+        val qualityLabels = ScrcpyPresets.AUDIO_QUALITY_OPTIONS.map { it.label }
+        val qualityAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, qualityLabels)
+        dialogBinding.actvAudioQuality.setAdapter(qualityAdapter)
+        dialogBinding.actvAudioQuality.setText(ScrcpyPresets.getAudioQualityLabel(config.audioQualityMode), false)
+        dialogBinding.actvAudioQuality.setOnItemClickListener { _, _, position, _ ->
+            selectedQualityMode = ScrcpyPresets.AUDIO_QUALITY_OPTIONS[position].value
+        }
+
+        // 7. 初始化远端数字音量增益下拉
+        var selectedGain = config.audioGain
+        val gainLabels = ScrcpyPresets.AUDIO_GAIN_OPTIONS.map { it.label }
+        val gainAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, gainLabels)
+        dialogBinding.actvAudioGain.setAdapter(gainAdapter)
+        dialogBinding.actvAudioGain.setText(ScrcpyPresets.getAudioGainLabel(config.audioGain), false)
+        dialogBinding.actvAudioGain.setOnItemClickListener { _, _, position, _ ->
+            selectedGain = ScrcpyPresets.AUDIO_GAIN_OPTIONS[position].value
+        }
+
+        // 8. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
         dialogBinding.switchAudioForward.isChecked = config.enableAudio
+        dialogBinding.switchMuteDevice.isChecked = config.muteDeviceAudio
+        dialogBinding.switchBackgroundAudio.isChecked = config.backgroundAudio
 
         // 应用按钮
         dialogBinding.btnApplySettings.setOnClickListener {
@@ -1071,8 +1123,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
             val oldAudio = config.enableAudio
             val oldSource = config.audioSource
+            val oldQuality = config.audioQualityMode
+            val oldMute = config.muteDeviceAudio
+            val oldGain = config.audioGain
+
             config.enableAudio = dialogBinding.switchAudioForward.isChecked
             config.audioSource = selectedAudioSource
+            config.audioQualityMode = selectedQualityMode
+            config.muteDeviceAudio = dialogBinding.switchMuteDevice.isChecked
+            config.backgroundAudio = dialogBinding.switchBackgroundAudio.isChecked
+            config.audioGain = selectedGain
 
             saveConfig()
             applyNavPosition(config.navPosition)
@@ -1080,8 +1140,25 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 applyFullscreen(config.isFullscreen)
             }
 
-            if (oldAudio != config.enableAudio || oldSource != config.audioSource) {
-                scrcpyManager?.setAudioEnabled(config.enableAudio, config.audioSource)
+            // 同步被控端外放静音设置
+            if (oldMute != config.muteDeviceAudio) {
+                scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
+            }
+
+            // 同步数字增益
+            if (oldGain != config.audioGain) {
+                scrcpyManager?.setAudioGain(config.audioGain)
+            }
+
+            // 若音频开关、输入源或缓冲区品质模式发生变化，重构音频传输
+            if (oldAudio != config.enableAudio || oldSource != config.audioSource || oldQuality != config.audioQualityMode) {
+                scrcpyManager?.setAudioEnabled(
+                    enabled = config.enableAudio,
+                    audioSource = config.audioSource,
+                    qualityMode = config.audioQualityMode,
+                    gain = config.audioGain,
+                    muteDevice = config.muteDeviceAudio
+                )
             }
 
             dialog.dismiss()
@@ -1145,14 +1222,26 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 config.audioSource = selected
                 config.enableAudio = true
                 saveConfig()
-                scrcpyManager?.setAudioEnabled(true, selected)
+                scrcpyManager?.setAudioEnabled(
+                    enabled = true,
+                    audioSource = selected,
+                    qualityMode = config.audioQualityMode,
+                    gain = config.audioGain,
+                    muteDevice = config.muteDeviceAudio
+                )
                 Toast.makeText(this, "已切换为: ${options[which].label}", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
             .setNeutralButton(if (config.enableAudio) "关闭音频" else "开启音频") { _, _ ->
                 config.enableAudio = !config.enableAudio
                 saveConfig()
-                scrcpyManager?.setAudioEnabled(config.enableAudio, config.audioSource)
+                scrcpyManager?.setAudioEnabled(
+                    enabled = config.enableAudio,
+                    audioSource = config.audioSource,
+                    qualityMode = config.audioQualityMode,
+                    gain = config.audioGain,
+                    muteDevice = config.muteDeviceAudio
+                )
                 val msg = if (config.enableAudio) "已开启音频传输" else "已关闭音频传输"
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
@@ -1166,6 +1255,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         backgroundTimeoutJob = null
         reconnectJob?.cancel()
         reconnectJob = null
+        AudioPlaybackService.stop(this)
+        AudioPlaybackService.onServiceStopRequested = null
         stopStreaming()
     }
 }

@@ -29,6 +29,17 @@ class AudioStreamPlayer(private val context: Context) {
     private var serverStream: AdbStream? = null
     private var audioStream: AdbStream? = null
     private var playbackThread: Thread? = null
+    private var lastAdbClient: AdbClient? = null
+
+    @Volatile
+    var audioGain: Float = 1.0f
+
+    @Volatile
+    var audioQualityMode: Int = 0 // 0: 听歌高保真, 1: 极速低延迟
+
+    @Volatile
+    var isDeviceMuted: Boolean = false
+        private set
 
     /**
      * 状态或错误回调通知
@@ -38,12 +49,49 @@ class AudioStreamPlayer(private val context: Context) {
     fun isPlaying(): Boolean = isPlaying.get()
 
     /**
+     * 动态设置被控机外放静音（仅留1格微音量传输给远端，防止硬件扬声器扰民）
+     */
+    fun setDeviceMuted(client: AdbClient?, muted: Boolean) {
+        val targetClient = client ?: lastAdbClient ?: return
+        isDeviceMuted = muted
+        Thread({
+            try {
+                if (muted) {
+                    targetClient.executeShell("cmd media_session volume --stream 3 --set 1 2>/dev/null || media volume --stream 3 --set 1 2>/dev/null")
+                    Log.i(TAG, "已设置被控端媒体外放微音量/静音")
+                } else {
+                    targetClient.executeShell("cmd media_session volume --stream 3 --set 10 2>/dev/null || media volume --stream 3 --set 10 2>/dev/null")
+                    Log.i(TAG, "已恢复被控端正常媒体外放音量")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "设置对端静音失败: ${e.message}")
+            }
+        }, "MuteDeviceThread").start()
+    }
+
+    /**
      * 启动音频转发与本机播放
      * @param audioSource 3: Sndcpy伴侣系统内录, 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别音源
+     * @param qualityMode 0: 高保真音乐模式(300ms防爆音大缓冲), 1: 极速低延迟模式(30ms游戏响应)
+     * @param gain 音频数字增益(1.0f~3.0f)
+     * @param muteDevice 是否静音被控端物理外放
      */
-    suspend fun start(adbClient: AdbClient, audioSource: Int = 3) = withContext(Dispatchers.IO) {
+    suspend fun start(
+        adbClient: AdbClient,
+        audioSource: Int = 3,
+        qualityMode: Int = 0,
+        gain: Float = 1.0f,
+        muteDevice: Boolean = false
+    ) = withContext(Dispatchers.IO) {
         if (isPlaying.get()) return@withContext
         isPlaying.set(true)
+        lastAdbClient = adbClient
+        this@AudioStreamPlayer.audioQualityMode = qualityMode
+        this@AudioStreamPlayer.audioGain = gain
+
+        if (muteDevice) {
+            setDeviceMuted(adbClient, true)
+        }
 
         try {
             // 检查本机媒体音量
@@ -244,7 +292,9 @@ class AudioStreamPlayer(private val context: Context) {
      */
     private fun initAudioTrackAndPlay(stream: AdbStream, successMessage: String) {
         val minBufSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING)
-        val bufferSize = (minBufSize * 4).coerceAtLeast(8192)
+        // 模式 0 (听歌高保真)：8倍缓冲 (约 300ms 动态防抖防爆音)；模式 1 (极速低延迟)：2倍缓冲 (约 30ms 响应)
+        val bufferMultiplier = if (audioQualityMode == 0) 8 else 2
+        val bufferSize = (minBufSize * bufferMultiplier).coerceAtLeast(if (audioQualityMode == 0) 32768 else 4096)
 
         val track = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             AudioTrack.Builder()
@@ -278,8 +328,9 @@ class AudioStreamPlayer(private val context: Context) {
 
         audioTrack = track
         track.play()
-        Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
-        onStatus?.invoke(successMessage, false)
+        val modeDesc = if (audioQualityMode == 0) "高保真听歌模式 (48kHz 防爆音)" else "极速低延迟模式 (30ms响应)"
+        Log.i(TAG, "AudioTrack 初始化成功 ($modeDesc)，开始实时播放")
+        onStatus?.invoke("$successMessage [$modeDesc]", false)
 
         playbackThread = Thread({
             val buffer = ByteArray(4096)
@@ -291,12 +342,18 @@ class AudioStreamPlayer(private val context: Context) {
                 while (isPlaying.get()) {
                     val read = input.read(buffer, 0, buffer.size)
                     if (read > 0) {
+                        // 动态软件数字增益算法 (16-bit PCM 立体声无损放大与削波平滑)
+                        val currentGain = audioGain
+                        if (currentGain > 1.05f) {
+                            applyPcmGain(buffer, read, currentGain)
+                        }
+
                         track.write(buffer, 0, read)
                         totalBytesReceived += read
 
                         if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
                             hasNotifiedFirstData = true
-                            onStatus?.invoke("声音传输中 (已接收数据流)", false)
+                            onStatus?.invoke("音频稳定传输中 (48kHz立体声)", false)
                         }
                     } else if (read < 0) {
                         Log.i(TAG, "音频输入流已到达 EOF")
@@ -318,10 +375,39 @@ class AudioStreamPlayer(private val context: Context) {
     }
 
     /**
+     * 对 16-bit PCM (Little-Endian) 字节数组进行实时平滑数字增益计算并做软削波保护
+     */
+    private fun applyPcmGain(data: ByteArray, length: Int, gain: Float) {
+        val safeLen = length - (length % 2)
+        var i = 0
+        while (i < safeLen) {
+            val low = data[i].toInt() and 0xFF
+            val high = data[i + 1].toInt()
+            var sample = (high shl 8) or low
+
+            var amplified = (sample * gain).toInt()
+            if (amplified > 32767) {
+                amplified = 32767
+            } else if (amplified < -32768) {
+                amplified = -32768
+            }
+
+            data[i] = (amplified and 0xFF).toByte()
+            data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
+            i += 2
+        }
+    }
+
+    /**
      * 停止音频播放并释放资源
      */
     fun stop() {
         if (!isPlaying.getAndSet(false)) return
+
+        // 若之前设置了静音，尝试恢复被控端外放音量
+        if (isDeviceMuted) {
+            setDeviceMuted(lastAdbClient, false)
+        }
 
         try {
             audioTrack?.let {

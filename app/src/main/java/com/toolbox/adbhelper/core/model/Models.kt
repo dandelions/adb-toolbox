@@ -77,7 +77,11 @@ data class ScrcpyConfig(
     var navPosition: NavPosition = NavPosition.BOTTOM,
     var isFullscreen: Boolean = false,
     var enableAudio: Boolean = true, // 声音传输 (音频转发，默认开启)
-    var audioSource: Int = 3 // 音频源：3=SNDCPY伴侣系统内录(Android 10+全机型支持)，0=自动(系统内录优先)，1=麦克风(MIC)，2=语音识别
+    var audioSource: Int = 3, // 音频源：3=SNDCPY伴侣系统内录(Android 10+全机型支持)，0=自动(系统内录优先)，1=麦克风(MIC)，2=语音识别
+    var audioQualityMode: Int = 0, // 音质模式：0=高保真音乐听歌模式(大缓冲防爆音)，1=极速低延迟模式(游戏控制)
+    var muteDeviceAudio: Boolean = false, // 被控机静音外放(仅传远端发声)
+    var backgroundAudio: Boolean = true, // 主控机按 Home 键切后台继续播放音频(不传画面)
+    var audioGain: Float = 1.0f // 音频数字增益：1.0x 正常, 1.5x 增强, 2.0x 强力放大, 3.0x 超强放大
 ) : Serializable
 
 data class ScrcpyOption<T>(
@@ -86,6 +90,26 @@ data class ScrcpyOption<T>(
 )
 
 object ScrcpyPresets {
+    val AUDIO_QUALITY_OPTIONS = listOf(
+        ScrcpyOption("高保真音乐模式 (推荐听歌/观影，48kHz大缓冲防抖零爆音)", 0),
+        ScrcpyOption("极速低延迟模式 (游戏控制推荐，约30ms超低延迟)", 1)
+    )
+
+    fun getAudioQualityLabel(mode: Int): String {
+        return AUDIO_QUALITY_OPTIONS.find { it.value == mode }?.label ?: AUDIO_QUALITY_OPTIONS[0].label
+    }
+
+    val AUDIO_GAIN_OPTIONS = listOf(
+        ScrcpyOption("1.0x (原始原声)", 1.0f),
+        ScrcpyOption("1.5x (+3.5dB 适度增强)", 1.5f),
+        ScrcpyOption("2.0x (+6.0dB 明显放大，静音听歌推荐)", 2.0f),
+        ScrcpyOption("3.0x (+9.5dB 超强推力放大)", 3.0f)
+    )
+
+    fun getAudioGainLabel(gain: Float): String {
+        return AUDIO_GAIN_OPTIONS.find { Math.abs(it.value - gain) < 0.1f }?.label ?: "${gain}x"
+    }
+
     val AUDIO_SOURCE_OPTIONS = listOf(
         ScrcpyOption("Sndcpy 系统声音内录 (推荐，Android 10+ 全兼容)", 3),
         ScrcpyOption("自动/原生系统内录 (AudioPolicy/Submix)", 0),

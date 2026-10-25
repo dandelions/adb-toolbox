@@ -258,19 +258,18 @@ class ScrcpyManager(
 
         if (config.enableAudio) {
             val audioSource = config.audioSource
-            Thread({
-                try {
-                    val player = AudioStreamPlayer(context)
-                    player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
-                    audioPlayer = player
-                    kotlinx.coroutines.runBlocking {
-                        player.start(adbClient, audioSource)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Audio player launch error: ${e.message}")
-                    onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
-                }
-            }, "AudioStartThread").start()
+            val qualityMode = config.audioQualityMode
+            val gain = config.audioGain
+            val muteDevice = config.muteDeviceAudio
+            val existingPlayer = audioPlayer
+            if (existingPlayer != null && existingPlayer.isPlaying()) {
+                existingPlayer.audioGain = gain
+                existingPlayer.audioQualityMode = qualityMode
+                existingPlayer.setDeviceMuted(adbClient, muteDevice)
+                Log.i(TAG, "复用已有活跃音频流，动态同步增益与静音配置")
+            } else {
+                startAudioStream(audioSource, qualityMode, gain, muteDevice)
+            }
         }
 
         streamThread = Thread({
@@ -598,7 +597,55 @@ class ScrcpyManager(
     /**
      * 停止屏幕流
      */
-    fun stopStream() {
+    fun isAudioPlaying(): Boolean = audioPlayer?.isPlaying() == true
+
+    fun setAudioGain(gain: Float) {
+        audioPlayer?.audioGain = gain
+    }
+
+    fun setDeviceMuted(muted: Boolean) {
+        audioPlayer?.setDeviceMuted(adbClient, muted)
+    }
+
+    /**
+     * 独立启动音频流转发
+     */
+    fun startAudioStream(
+        audioSource: Int = 3,
+        qualityMode: Int = 0,
+        gain: Float = 1.0f,
+        muteDevice: Boolean = false
+    ) {
+        audioPlayer?.stop()
+        Thread({
+            try {
+                val player = AudioStreamPlayer(context)
+                player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
+                audioPlayer = player
+                kotlinx.coroutines.runBlocking {
+                    player.start(adbClient, audioSource, qualityMode, gain, muteDevice)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Audio player launch error: ${e.message}")
+                onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
+            }
+        }, "AudioStartThread").start()
+    }
+
+    /**
+     * 停止音频流
+     */
+    fun stopAudioStream() {
+        try {
+            audioPlayer?.stop()
+        } catch (_: Exception) {}
+        audioPlayer = null
+    }
+
+    /**
+     * 仅停止视频推流与解码（切后台或纯后台听歌时使用，保持音频流不间断）
+     */
+    fun stopVideoStream() {
         if (!isStreaming.getAndSet(false)) return
         isSurfaceReady = false
         currentSurface = null
@@ -621,11 +668,6 @@ class ScrcpyManager(
             }
         } catch (_: Exception) {}
 
-        try {
-            audioPlayer?.stop()
-        } catch (_: Exception) {}
-        audioPlayer = null
-
         stopControlThread()
 
         // 2. 温和关闭各 ADB 通道流，顺序为视频流 -> 控制流 -> server进程流
@@ -646,28 +688,28 @@ class ScrcpyManager(
     }
 
     /**
+     * 停止全部推流（视频与音频）
+     */
+    fun stopStream() {
+        stopVideoStream()
+        stopAudioStream()
+    }
+
+    /**
      * 动态开启或关闭音频传输
      * @param audioSource 0: 自动系统内录, 1: 麦克风音源, 2: 语音识别
      */
-    fun setAudioEnabled(enabled: Boolean, audioSource: Int = 0) {
-        audioPlayer?.stop()
-        audioPlayer = null
-
+    fun setAudioEnabled(
+        enabled: Boolean,
+        audioSource: Int = 0,
+        qualityMode: Int = 0,
+        gain: Float = 1.0f,
+        muteDevice: Boolean = false
+    ) {
         if (enabled) {
-            Thread({
-                try {
-                    val player = AudioStreamPlayer(context)
-                    player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
-                    audioPlayer = player
-                    kotlinx.coroutines.runBlocking {
-                        player.start(adbClient, audioSource)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Dynamic audio start failed: ${e.message}")
-                    onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
-                }
-            }, "DynamicAudioThread").start()
+            startAudioStream(audioSource, qualityMode, gain, muteDevice)
         } else {
+            stopAudioStream()
             onAudioStatus?.invoke("音频已停止", false)
         }
     }

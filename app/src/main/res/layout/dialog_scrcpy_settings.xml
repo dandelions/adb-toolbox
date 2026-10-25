@@ -168,6 +168,88 @@
             android:text="声音传输 (对端音频转发至本机播放)"
             android:textColor="@color/text_primary" />
 
+        <!-- 后台音频保活开关 -->
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchBackgroundAudio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="切后台纯音频播放 (Home键切桌面不中断听歌，暂停传画省电)"
+            android:textColor="@color/text_primary" />
+
+        <!-- 被控端静音外放开关 -->
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchMuteDevice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="被控端静音外放 (仅本机远端听音，对端扬声器不扰民)"
+            android:textColor="@color/text_primary" />
+
+        <!-- 音质模式选择 -->
+        <TextView
+            android:id="@+id/tvAudioQualityTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="音频传输与品质模式"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutAudioQuality"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvAudioQuality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- 远端音量增益选择 -->
+        <TextView
+            android:id="@+id/tvAudioGainTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="远端数字音量增益 (被控端静音/微音量时可数码放大)"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutAudioGain"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvAudioGain"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- 音频源选择 -->
         <TextView
             android:id="@+id/tvAudioSourceTitle"
