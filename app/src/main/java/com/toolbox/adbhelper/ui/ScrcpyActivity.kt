@@ -230,8 +230,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.btnToolbarSettings.setOnClickListener { showSettingsDialog() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
-        // 浮动悬浮球默认隐藏，远程画面保持干净无遮挡
-        binding.fabQuickMenu.visibility = View.GONE
+        // 浮动悬浮球（全屏或隐藏导航栏时快速唤出控制菜单，支持一键切换虚拟耳机与设置）
+        binding.fabQuickMenu.setOnClickListener {
+            showQuickMenuDialog()
+        }
 
         // 诊断栏快捷按钮
         binding.btnQuickSwitchMode.setOnClickListener {
@@ -290,10 +292,22 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             binding.toolbar.visibility = View.GONE
             binding.layoutDiagBar.visibility = View.GONE
             windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+            // 全屏时悬浮球常驻可见并置顶，确保用户随时能呼出虚拟耳机与设置菜单
+            binding.fabQuickMenu.visibility = View.VISIBLE
+            binding.fabQuickMenu.bringToFront()
+            if (config.navPosition != NavPosition.HIDE && config.navPosition != NavPosition.FLOATING) {
+                binding.navBarWrapper.bringToFront()
+            }
         } else {
             binding.toolbar.visibility = View.VISIBLE
             binding.layoutDiagBar.visibility = View.VISIBLE
             windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
+            if (config.navPosition != NavPosition.HIDE && config.navPosition != NavPosition.FLOATING) {
+                binding.fabQuickMenu.visibility = View.GONE
+            } else {
+                binding.fabQuickMenu.visibility = View.VISIBLE
+                binding.fabQuickMenu.bringToFront()
+            }
         }
     }
 
@@ -304,39 +318,42 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         when (position) {
             NavPosition.BOTTOM -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
-                binding.fabQuickMenu.visibility = View.GONE
+                binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                wrapperParams.setMargins(0, 0, 0, 16)
+                val bottomMargin = if (config.isFullscreen) 24 else 16
+                wrapperParams.setMargins(0, 0, 0, bottomMargin)
                 content.orientation = LinearLayout.HORIZONTAL
             }
             NavPosition.TOP -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
-                binding.fabQuickMenu.visibility = View.GONE
+                binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                val topMargin = if (config.isFullscreen) 16 else 140
+                val topMargin = if (config.isFullscreen) 24 else 140
                 wrapperParams.setMargins(0, topMargin, 0, 0)
                 content.orientation = LinearLayout.HORIZONTAL
             }
             NavPosition.LEFT -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
-                binding.fabQuickMenu.visibility = View.GONE
+                binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 wrapperParams.setMargins(16, 0, 0, 0)
                 content.orientation = LinearLayout.VERTICAL
             }
             NavPosition.RIGHT -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
-                binding.fabQuickMenu.visibility = View.GONE
+                binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 wrapperParams.setMargins(0, 0, 16, 0)
                 content.orientation = LinearLayout.VERTICAL
             }
             NavPosition.FLOATING, NavPosition.HIDE -> {
                 binding.navBarWrapper.visibility = View.GONE
-                binding.fabQuickMenu.visibility = View.GONE
+                binding.fabQuickMenu.visibility = View.VISIBLE
             }
         }
         binding.navBarWrapper.layoutParams = wrapperParams
+        binding.navBarWrapper.bringToFront()
+        binding.fabQuickMenu.bringToFront()
     }
 
     private fun getMappedDeviceCoords(touchX: Float, touchY: Float, view: View, targetW: Int, targetH: Int): Pair<Int, Int>? {
@@ -878,6 +895,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             config.muteDeviceAudio
                         )
                     }
+
+                    // 若配置了静音外放，自动确保虚拟耳机插入
+                    if (config.muteDeviceAudio && !VirtualHeadsetManager.isPluggedIn) {
+                        val adbClient = DeviceManager.adbClient
+                        if (adbClient != null && adbClient.isConnected) {
+                            lifecycleScope.launch {
+                                val ok = VirtualHeadsetManager.plugIn(adbClient)
+                                if (ok) updateHeadsetButtonUI(true)
+                            }
+                        }
+                    }
                 }
             },
             onError = { errMsg ->
@@ -1136,7 +1164,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
         dialogBinding.switchAudioForward.isChecked = config.enableAudio
-        dialogBinding.switchMuteDevice.isChecked = config.muteDeviceAudio
+        dialogBinding.switchMuteDevice.isChecked = VirtualHeadsetManager.isPluggedIn || config.muteDeviceAudio
         dialogBinding.switchBackgroundAudio.isChecked = config.backgroundAudio
 
         // 应用按钮
@@ -1162,7 +1190,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             config.enableAudio = dialogBinding.switchAudioForward.isChecked
             config.audioSource = selectedAudioSource
             config.audioQualityMode = selectedQualityMode
-            config.muteDeviceAudio = dialogBinding.switchMuteDevice.isChecked
+            val newMute = dialogBinding.switchMuteDevice.isChecked
+            config.muteDeviceAudio = newMute
             config.backgroundAudio = dialogBinding.switchBackgroundAudio.isChecked
             config.audioGain = selectedGain
 
@@ -1172,8 +1201,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 applyFullscreen(config.isFullscreen)
             }
 
-            // 确保同步被控端外放静音设置（强制下发期望状态，杜绝状态不一致）
-            scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
+            // 联动虚拟耳机开关状态
+            val adbClient = DeviceManager.adbClient
+            if (adbClient != null && adbClient.isConnected) {
+                lifecycleScope.launch {
+                    if (newMute && !VirtualHeadsetManager.isPluggedIn) {
+                        VirtualHeadsetManager.plugIn(adbClient)
+                    } else if (!newMute && VirtualHeadsetManager.isPluggedIn) {
+                        VirtualHeadsetManager.plugOut(adbClient)
+                    }
+                    updateHeadsetButtonUI(VirtualHeadsetManager.isPluggedIn)
+                }
+            }
 
             // 同步数字增益
             if (oldGain != config.audioGain) {
@@ -1198,7 +1237,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 startStreaming()
             } else {
                 val audioMsg = if (config.enableAudio) "声音传输已开启" else "声音传输已关闭"
-                val muteTip = if (config.muteDeviceAudio) "，被控端物理外放已静音" else ""
+                val muteTip = if (config.muteDeviceAudio) "，虚拟耳机外放已静音" else ""
                 Toast.makeText(this, "设置已生效 ($audioMsg$muteTip)", Toast.LENGTH_SHORT).show()
             }
         }
@@ -1207,16 +1246,35 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun showQuickMenuDialog() {
-        val muteAction = if (config.muteDeviceAudio) "恢复被控端外放声音" else "静音被控端物理外放"
-        val items = arrayOf("显示底部控制栏", "切换全屏显示", "被控端熄屏/亮屏", muteAction, "切换投屏模式 (流式/截图)", "投屏设置", "返回主页")
+        val headsetAction = if (VirtualHeadsetManager.isPluggedIn) "🎧 拔出虚拟耳机 (恢复外放)" else "🎧 接入虚拟耳机 (静音对端外放)"
+        val fullscreenAction = if (config.isFullscreen) "🔲 退出全屏显示" else "🔲 切换全屏显示"
+        val items = arrayOf(
+            headsetAction,
+            fullscreenAction,
+            "📱 被控端熄屏/亮屏",
+            "🧭 显示底部控制栏",
+            "🔄 切换投屏模式 (流式/截图)",
+            "⚙️ 投屏设置",
+            "🚪 退出投屏"
+        )
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("控制菜单")
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> {
-                        config.navPosition = NavPosition.BOTTOM
-                        applyNavPosition(config.navPosition)
-                        saveConfig()
+                        val adbClient = DeviceManager.adbClient
+                        if (adbClient == null || !adbClient.isConnected) {
+                            Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                            return@setItems
+                        }
+                        lifecycleScope.launch {
+                            val newState = VirtualHeadsetManager.toggle(adbClient)
+                            config.muteDeviceAudio = newState
+                            saveConfig()
+                            updateHeadsetButtonUI(newState)
+                            val tip = if (newState) "虚拟耳机已接入：被控端外放已静音" else "虚拟耳机已拔出：被控端外放已恢复"
+                            Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
+                        }
                     }
                     1 -> {
                         config.isFullscreen = !config.isFullscreen
@@ -1225,11 +1283,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     2 -> toggleDeviceScreen()
                     3 -> {
-                        config.muteDeviceAudio = !config.muteDeviceAudio
+                        config.navPosition = NavPosition.BOTTOM
+                        applyNavPosition(config.navPosition)
                         saveConfig()
-                        scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
-                        val tip = if (config.muteDeviceAudio) "已将对端物理外放设为微音量静音 (保持内录信号)" else "已恢复对端物理外放声音"
-                        Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "已将控制栏重置到底部", Toast.LENGTH_SHORT).show()
                     }
                     4 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {

@@ -177,13 +177,13 @@
             android:text="切后台纯音频播放 (Home键切桌面不中断听歌，暂停传画省电)"
             android:textColor="@color/text_primary" />
 
-        <!-- 被控端静音外放开关 -->
+        <!-- 虚拟耳机静音外放开关 -->
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchMuteDevice"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="被控端静音外放 (仅本机远端听音，对端扬声器不扰民)"
+            android:text="虚拟耳机静音外放 (系统级切断对端扬声器，仅本机听音)"
             android:textColor="@color/text_primary" />
 
         <!-- 音质模式选择 -->
