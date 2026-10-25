@@ -604,36 +604,7 @@ class ScrcpyManager(
     }
 
     fun setDeviceMuted(muted: Boolean) {
-        val player = audioPlayer
-        if (player != null) {
-            player.setDeviceMuted(adbClient, muted)
-        } else {
-            // 即使音频未启动，也可直接通过 ADB 控制对端物理外放音量静音/恢复
-            Thread({
-                try {
-                    if (muted) {
-                        val muteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
-                                "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 1 2>/dev/null; " +
-                                "cmd media_session volume --stream 3 --set 1 2>/dev/null; " +
-                                "media volume --stream 3 --set 1 2>/dev/null; " +
-                                "settings put system volume_music_speaker 1 2>/dev/null; " +
-                                "settings put system volume_music 1 2>/dev/null"
-                        adbClient.executeShell(muteCmd, 3500)
-                    } else {
-                        val unmuteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
-                                "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 10 2>/dev/null; " +
-                                "cmd media_session volume --stream 3 --set 10 2>/dev/null; " +
-                                "media volume --stream 3 --set 10 2>/dev/null; " +
-                                "settings put system volume_music_speaker 10 2>/dev/null; " +
-                                "settings put system volume_music 10 2>/dev/null; " +
-                                "input keyevent 24 24 24 2>/dev/null"
-                        adbClient.executeShell(unmuteCmd, 3500)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "直接设置对端外放静音失败: ${e.message}")
-                }
-            }, "DirectMuteThread").start()
-        }
+        audioPlayer?.setDeviceMuted(adbClient, muted)
     }
 
     /**
