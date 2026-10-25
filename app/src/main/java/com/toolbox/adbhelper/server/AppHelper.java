@@ -34,6 +34,18 @@ public class AppHelper {
                 return;
             }
 
+            // 支持音量控制子命令：app_process ... AppHelper volume <0..15>
+            if (args != null && args.length >= 2 && "volume".equalsIgnoreCase(args[0])) {
+                try {
+                    int vol = Integer.parseInt(args[1].trim());
+                    setVolume(context, vol);
+                    System.out.println("VOLUME_RESULT:" + vol);
+                } catch (Throwable t) {
+                    System.err.println("VOLUME_PARSE_ERR:" + t.getMessage());
+                }
+                return;
+            }
+
             PackageManager pm = context.getPackageManager();
             if (pm == null) {
                 System.err.println("ERROR: Unable to get package manager");
@@ -116,6 +128,18 @@ public class AppHelper {
             } catch (Throwable t2) {
                 return null;
             }
+        }
+    }
+
+    private static void setVolume(Context context, int volume) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                // STREAM_MUSIC = 3
+                am.setStreamVolume(3, volume, 0);
+            }
+        } catch (Throwable t) {
+            System.err.println("SET_VOLUME_ERR: " + t.getMessage());
         }
     }
 }

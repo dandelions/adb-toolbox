@@ -57,21 +57,25 @@ class AudioStreamPlayer(private val context: Context) {
         Thread({
             try {
                 if (muted) {
-                    // 安全平滑静音：通过系统媒体会话与设置将 STREAM_MUSIC 音量安全调为 0
-                    // 严禁调用 cmd audio set-volume-key-mute 或大批量按键，否则会切断系统的 AudioRecord 捕获通道导致录音流中断！
-                    val muteCmd = "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
+                    // 1. 优先调用 app-helper.jar 的系统原生 AudioManager.setStreamVolume(3, 0, 0)
+                    // 2. 结合 media volume / cmd media_session 将音量设为 0
+                    // 3. 异步发送物理音量下键循环，双重确保底层硬件功放彻底无声
+                    val muteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 0 2>/dev/null; " +
+                            "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
                             "media volume --stream 3 --set 0 2>/dev/null; " +
                             "settings put system volume_music_speaker 0 2>/dev/null; " +
-                            "settings put system volume_music 0 2>/dev/null"
-                    val out = targetClient.executeShell(muteCmd, 3000)
+                            "settings put system volume_music 0 2>/dev/null; " +
+                            "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do input keyevent 25; done &"
+                    val out = targetClient.executeShell(muteCmd, 3500)
                     Log.i(TAG, "已安全设置被控端外放静音(音量0), 命令输出: $out")
                 } else {
                     // 恢复被控机物理外放音量至正常级别（约 9 格）
-                    val unmuteCmd = "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
+                    val unmuteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 9 2>/dev/null; " +
+                            "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
                             "media volume --stream 3 --set 9 2>/dev/null; " +
                             "settings put system volume_music_speaker 9 2>/dev/null; " +
                             "settings put system volume_music 9 2>/dev/null"
-                    val out = targetClient.executeShell(unmuteCmd, 3000)
+                    val out = targetClient.executeShell(unmuteCmd, 3500)
                     Log.i(TAG, "已恢复被控端正常媒体外放音量(音量9), 命令输出: $out")
                 }
             } catch (e: Exception) {
@@ -130,6 +134,13 @@ class AudioStreamPlayer(private val context: Context) {
      */
     private suspend fun startSndcpy(adbClient: AdbClient, muteDevice: Boolean = false) {
         onStatus?.invoke("正在连接 Sndcpy 音频服务...", false)
+
+        // 异步确保 app-helper.jar 就绪（供后续系统级静音调用）
+        Thread({
+            try {
+                ensureHelperPushed(context, adbClient)
+            } catch (_: Exception) {}
+        }, "AsyncPushHelperThread").start()
 
         // 步骤 1: 优先尝试直接连接已有服务（如果对端已弹出并显示等待连接中，直接秒连！）
         var stream: AdbStream? = null
@@ -378,12 +389,27 @@ class AudioStreamPlayer(private val context: Context) {
             val buffer = ByteArray(4096)
             val input = stream.inputStream
             var totalBytesReceived = 0L
-            var hasNotifiedFirstData = false
+            var lastDiagTime = System.currentTimeMillis()
+            var periodMaxPeak = 0
 
             try {
                 while (isPlaying.get()) {
                     val read = input.read(buffer, 0, buffer.size)
                     if (read > 0) {
+                        // 实时计算本次 PCM 数据块的最大绝对值振幅
+                        var blockPeak = 0
+                        var idx = 0
+                        val safeRead = read - (read % 2)
+                        while (idx < safeRead) {
+                            val low = buffer[idx].toInt() and 0xFF
+                            val high = buffer[idx + 1].toInt()
+                            val sample = ((high shl 8) or low).toShort().toInt()
+                            val abs = Math.abs(sample)
+                            if (abs > blockPeak) blockPeak = abs
+                            idx += 2
+                        }
+                        if (blockPeak > periodMaxPeak) periodMaxPeak = blockPeak
+
                         // 动态软件数字增益算法 (16-bit PCM 立体声无损放大与削波平滑)
                         val currentGain = audioGain
                         if (currentGain > 1.05f) {
@@ -393,9 +419,17 @@ class AudioStreamPlayer(private val context: Context) {
                         track.write(buffer, 0, read)
                         totalBytesReceived += read
 
-                        if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
-                            hasNotifiedFirstData = true
-                            onStatus?.invoke("音频稳定传输中 (48kHz立体声)", false)
+                        val now = System.currentTimeMillis()
+                        if (now - lastDiagTime >= 2000L) {
+                            lastDiagTime = now
+                            val peak = periodMaxPeak
+                            periodMaxPeak = 0
+                            if (peak == 0) {
+                                onStatus?.invoke("音频通道就绪 [对端信号电平: 0% 静音]", false)
+                            } else {
+                                val percent = (peak * 100 / 32767).coerceIn(1, 100)
+                                onStatus?.invoke("音频实时播放中 [信号电平: $percent%]", false)
+                            }
                         }
                     } else if (read < 0) {
                         Log.i(TAG, "音频输入流已到达 EOF")
@@ -425,15 +459,9 @@ class AudioStreamPlayer(private val context: Context) {
         while (i < safeLen) {
             val low = data[i].toInt() and 0xFF
             val high = data[i + 1].toInt()
-            var sample = (high shl 8) or low
+            val sample = ((high shl 8) or low).toShort()
 
-            var amplified = (sample * gain).toInt()
-            if (amplified > 32767) {
-                amplified = 32767
-            } else if (amplified < -32768) {
-                amplified = -32768
-            }
-
+            val amplified = (sample * gain).toInt().coerceIn(-32768, 32767)
             data[i] = (amplified and 0xFF).toByte()
             data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
             i += 2
