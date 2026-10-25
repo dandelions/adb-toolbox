@@ -614,19 +614,15 @@ class ScrcpyManager(
                     if (muted) {
                         val muteCmd = "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
                                 "media volume --stream 3 --set 0 2>/dev/null; " +
-                                "cmd audio set-volume-key-mute 3 1 2>/dev/null; " +
                                 "settings put system volume_music_speaker 0 2>/dev/null; " +
-                                "settings put system volume_music 0 2>/dev/null; " +
-                                "input keyevent 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 2>/dev/null"
-                        adbClient.executeShell(muteCmd, 3500)
+                                "settings put system volume_music 0 2>/dev/null"
+                        adbClient.executeShell(muteCmd, 3000)
                     } else {
                         val unmuteCmd = "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
                                 "media volume --stream 3 --set 9 2>/dev/null; " +
-                                "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
                                 "settings put system volume_music_speaker 9 2>/dev/null; " +
-                                "settings put system volume_music 9 2>/dev/null; " +
-                                "input keyevent 24 24 24 24 24 24 24 24 24 2>/dev/null"
-                        adbClient.executeShell(unmuteCmd, 3500)
+                                "settings put system volume_music 9 2>/dev/null"
+                        adbClient.executeShell(unmuteCmd, 3000)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "直接设置对端外放静音失败: ${e.message}")

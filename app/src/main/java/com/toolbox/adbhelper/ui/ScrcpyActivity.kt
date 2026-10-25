@@ -1270,6 +1270,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         reconnectJob = null
         AudioPlaybackService.stop(this)
         AudioPlaybackService.onServiceStopRequested = null
+        if (config.muteDeviceAudio) {
+            try {
+                scrcpyManager?.setDeviceMuted(false)
+            } catch (_: Exception) {}
+        }
         stopStreaming()
     }
 }

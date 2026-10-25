@@ -57,30 +57,22 @@ class AudioStreamPlayer(private val context: Context) {
         Thread({
             try {
                 if (muted) {
-                    // 多重兜底静音指令集（涵盖各大品牌 Android 10/11/12/13/14 定制系统与原生系统）：
-                    // 1. cmd media_session 将媒体流(stream 3)音量设为0
-                    // 2. 传统 media 脚本将音量设为0
-                    // 3. cmd audio 触发硬件级媒体流静音锁定
-                    // 4. settings 写入系统媒体扬声器音量为0
-                    // 5. 模拟发送15次连续音量下键，确保物理音量彻底归零
+                    // 安全平滑静音：通过系统媒体会话与设置将 STREAM_MUSIC 音量安全调为 0
+                    // 严禁调用 cmd audio set-volume-key-mute 或大批量按键，否则会切断系统的 AudioRecord 捕获通道导致录音流中断！
                     val muteCmd = "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
                             "media volume --stream 3 --set 0 2>/dev/null; " +
-                            "cmd audio set-volume-key-mute 3 1 2>/dev/null; " +
                             "settings put system volume_music_speaker 0 2>/dev/null; " +
-                            "settings put system volume_music 0 2>/dev/null; " +
-                            "input keyevent 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 2>/dev/null"
-                    val out = targetClient.executeShell(muteCmd, 3500)
-                    Log.i(TAG, "已设置被控端物理外放彻底静音 (音量归0), 命令响应: $out")
+                            "settings put system volume_music 0 2>/dev/null"
+                    val out = targetClient.executeShell(muteCmd, 3000)
+                    Log.i(TAG, "已安全设置被控端外放静音(音量0), 命令输出: $out")
                 } else {
                     // 恢复被控机物理外放音量至正常级别（约 9 格）
                     val unmuteCmd = "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
                             "media volume --stream 3 --set 9 2>/dev/null; " +
-                            "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
                             "settings put system volume_music_speaker 9 2>/dev/null; " +
-                            "settings put system volume_music 9 2>/dev/null; " +
-                            "input keyevent 24 24 24 24 24 24 24 24 24 2>/dev/null"
-                    val out = targetClient.executeShell(unmuteCmd, 3500)
-                    Log.i(TAG, "已恢复被控端正常媒体外放音量 (音量恢复), 命令响应: $out")
+                            "settings put system volume_music 9 2>/dev/null"
+                    val out = targetClient.executeShell(unmuteCmd, 3000)
+                    Log.i(TAG, "已恢复被控端正常媒体外放音量(音量9), 命令输出: $out")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "设置对端静音失败: ${e.message}")
@@ -454,10 +446,8 @@ class AudioStreamPlayer(private val context: Context) {
     fun stop() {
         if (!isPlaying.getAndSet(false)) return
 
-        // 若之前设置了静音，尝试恢复被控端外放音量
-        if (isDeviceMuted) {
-            setDeviceMuted(lastAdbClient, false)
-        }
+        // 注意：严禁在音频流中断或停止播放时擅自调高被控端物理外放音量！
+        // 用户的被控端静音设置属于全局持久化偏好，仅允许在用户明确取消静音勾选或销毁投屏时主动恢复。
 
         try {
             audioTrack?.let {
