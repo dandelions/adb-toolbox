@@ -309,41 +309,54 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 binding.fabQuickMenu.bringToFront()
             }
         }
+        applyNavPosition(config.navPosition)
     }
 
     private fun applyNavPosition(position: NavPosition) {
         val wrapperParams = binding.navBarWrapper.layoutParams as FrameLayout.LayoutParams
         val content = binding.navBarContent
 
+        // 同步让右下角悬浮球和底部任务栏处于同一高度基准线 (居中对齐)
+        val density = resources.displayMetrics.density
+        val bottomMarginDp = if (config.isFullscreen) 24 else 16
+        val bottomMarginPx = (bottomMarginDp * density).toInt()
+
+        val fabParams = binding.fabQuickMenu.layoutParams as FrameLayout.LayoutParams
+        fabParams.gravity = Gravity.END or Gravity.BOTTOM
+        // 任务栏高约 56dp，Mini FAB 高 40dp，底部对齐偏移 +8dp 达到水平中心一致
+        val fabBottomMarginPx = ((bottomMarginDp + 8) * density).toInt()
+        val fabEndMarginPx = (16 * density).toInt()
+        fabParams.setMargins(0, 0, fabEndMarginPx, fabBottomMarginPx)
+        binding.fabQuickMenu.layoutParams = fabParams
+
         when (position) {
             NavPosition.BOTTOM -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
                 binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                val bottomMargin = if (config.isFullscreen) 24 else 16
-                wrapperParams.setMargins(0, 0, 0, bottomMargin)
+                wrapperParams.setMargins(0, 0, 0, bottomMarginPx)
                 content.orientation = LinearLayout.HORIZONTAL
             }
             NavPosition.TOP -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
                 binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                val topMargin = if (config.isFullscreen) 24 else 140
-                wrapperParams.setMargins(0, topMargin, 0, 0)
+                val topMarginPx = if (config.isFullscreen) (24 * density).toInt() else (140 * density).toInt()
+                wrapperParams.setMargins(0, topMarginPx, 0, 0)
                 content.orientation = LinearLayout.HORIZONTAL
             }
             NavPosition.LEFT -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
                 binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                wrapperParams.setMargins(16, 0, 0, 0)
+                wrapperParams.setMargins((16 * density).toInt(), 0, 0, 0)
                 content.orientation = LinearLayout.VERTICAL
             }
             NavPosition.RIGHT -> {
                 binding.navBarWrapper.visibility = View.VISIBLE
                 binding.fabQuickMenu.visibility = if (config.isFullscreen) View.VISIBLE else View.GONE
                 wrapperParams.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                wrapperParams.setMargins(0, 0, 16, 0)
+                wrapperParams.setMargins(0, 0, (16 * density).toInt(), 0)
                 content.orientation = LinearLayout.VERTICAL
             }
             NavPosition.FLOATING, NavPosition.HIDE -> {
