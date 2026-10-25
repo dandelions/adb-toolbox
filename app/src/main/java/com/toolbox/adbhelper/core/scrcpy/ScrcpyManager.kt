@@ -612,19 +612,21 @@ class ScrcpyManager(
             Thread({
                 try {
                     if (muted) {
-                        val muteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 0 2>/dev/null; " +
-                                "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
-                                "media volume --stream 3 --set 0 2>/dev/null; " +
-                                "settings put system volume_music_speaker 0 2>/dev/null; " +
-                                "settings put system volume_music 0 2>/dev/null; " +
-                                "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do input keyevent 25; done &"
+                        val muteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
+                                "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 1 2>/dev/null; " +
+                                "cmd media_session volume --stream 3 --set 1 2>/dev/null; " +
+                                "media volume --stream 3 --set 1 2>/dev/null; " +
+                                "settings put system volume_music_speaker 1 2>/dev/null; " +
+                                "settings put system volume_music 1 2>/dev/null"
                         adbClient.executeShell(muteCmd, 3500)
                     } else {
-                        val unmuteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 9 2>/dev/null; " +
-                                "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
-                                "media volume --stream 3 --set 9 2>/dev/null; " +
-                                "settings put system volume_music_speaker 9 2>/dev/null; " +
-                                "settings put system volume_music 9 2>/dev/null"
+                        val unmuteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
+                                "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 10 2>/dev/null; " +
+                                "cmd media_session volume --stream 3 --set 10 2>/dev/null; " +
+                                "media volume --stream 3 --set 10 2>/dev/null; " +
+                                "settings put system volume_music_speaker 10 2>/dev/null; " +
+                                "settings put system volume_music 10 2>/dev/null; " +
+                                "input keyevent 24 24 24 2>/dev/null"
                         adbClient.executeShell(unmuteCmd, 3500)
                     }
                 } catch (e: Exception) {

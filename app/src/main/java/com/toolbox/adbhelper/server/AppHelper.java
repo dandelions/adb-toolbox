@@ -135,8 +135,8 @@ public class AppHelper {
         try {
             android.media.AudioManager am = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am != null) {
-                // STREAM_MUSIC = 3
-                am.setStreamVolume(3, volume, 0);
+                // STREAM_MUSIC = 3, FLAG_REMOVE_SOUND_AND_VIBRATE = 8
+                am.setStreamVolume(3, volume, 8);
             }
         } catch (Throwable t) {
             System.err.println("SET_VOLUME_ERR: " + t.getMessage());

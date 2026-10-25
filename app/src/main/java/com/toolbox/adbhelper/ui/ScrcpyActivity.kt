@@ -911,7 +911,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isFallbackMode = true
         watchdogJob?.cancel()
         watchdogJob = null
-        scrcpyManager?.stopStream()
+        scrcpyManager?.stopVideoStream()
+        if (config.enableAudio && scrcpyManager?.isAudioPlaying() != true) {
+            scrcpyManager?.startAudioStream(
+                audioSource = config.audioSource,
+                qualityMode = config.audioQualityMode,
+                gain = config.audioGain,
+                muteDevice = config.muteDeviceAudio
+            )
+        }
         streamJob?.cancel()
         streamJob = null
 
@@ -1195,7 +1203,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         config.muteDeviceAudio = !config.muteDeviceAudio
                         saveConfig()
                         scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
-                        val tip = if (config.muteDeviceAudio) "已将对端物理外放彻底静音 (音量归0)" else "已恢复对端物理外放声音"
+                        val tip = if (config.muteDeviceAudio) "已将对端物理外放设为微音量静音 (保持内录信号)" else "已恢复对端物理外放声音"
                         Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
                     }
                     4 -> {
@@ -1242,7 +1250,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 config.muteDeviceAudio = !config.muteDeviceAudio
                 saveConfig()
                 scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
-                val tip = if (config.muteDeviceAudio) "已将对端物理外放彻底静音 (音量归0)" else "已恢复对端物理外放声音"
+                val tip = if (config.muteDeviceAudio) "已将对端物理外放设为微音量静音 (保持内录信号)" else "已恢复对端物理外放声音"
                 Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton(if (config.enableAudio) "关闭音频" else "开启音频") { _, _ ->

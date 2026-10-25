@@ -30,6 +30,7 @@ class AudioStreamPlayer(private val context: Context) {
     private var audioStream: AdbStream? = null
     private var playbackThread: Thread? = null
     private var lastAdbClient: AdbClient? = null
+    private var focusRequest: Any? = null
 
     @Volatile
     var audioGain: Float = 1.0f
@@ -49,7 +50,7 @@ class AudioStreamPlayer(private val context: Context) {
     fun isPlaying(): Boolean = isPlaying.get()
 
     /**
-     * 动态设置被控机物理外放静音（将外放音量置0/静音，仅将内录音频传输给控制端播放）
+     * 动态设置被控机物理外放静音（将外放音量置为微音量1格，仅将内录音频传输给控制端播放）
      */
     fun setDeviceMuted(client: AdbClient?, muted: Boolean) {
         val targetClient = client ?: lastAdbClient ?: return
@@ -57,26 +58,30 @@ class AudioStreamPlayer(private val context: Context) {
         Thread({
             try {
                 if (muted) {
-                    // 1. 优先调用 app-helper.jar 的系统原生 AudioManager.setStreamVolume(3, 0, 0)
-                    // 2. 结合 media volume / cmd media_session 将音量设为 0
-                    // 3. 异步发送物理音量下键循环，双重确保底层硬件功放彻底无声
-                    val muteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 0 2>/dev/null; " +
-                            "cmd media_session volume --stream 3 --set 0 2>/dev/null; " +
-                            "media volume --stream 3 --set 0 2>/dev/null; " +
-                            "settings put system volume_music_speaker 0 2>/dev/null; " +
-                            "settings put system volume_music 0 2>/dev/null; " +
-                            "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do input keyevent 25; done &"
+                    // 1. 优先调用 app-helper.jar 的系统原生 AudioManager.setStreamVolume(3, 1, 8)
+                    // 2. 结合 media volume / cmd media_session 将音量设为 1 格微音量
+                    // 核心技术规范：Android 系统的 AudioPlaybackCapture 与内录基于混音器输出；
+                    // 若直接置为 0 会导致混音采样乘零全哑。设为 1 格可在被控端扬声器极微弱无扰的前提下，保留完整内录 PCM 信号！
+                    val muteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
+                            "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 1 2>/dev/null; " +
+                            "cmd media_session volume --stream 3 --set 1 2>/dev/null; " +
+                            "media volume --stream 3 --set 1 2>/dev/null; " +
+                            "settings put system volume_music_speaker 1 2>/dev/null; " +
+                            "settings put system volume_music 1 2>/dev/null"
                     val out = targetClient.executeShell(muteCmd, 3500)
-                    Log.i(TAG, "已安全设置被控端外放静音(音量0), 命令输出: $out")
+                    Log.i(TAG, "已安全设置被控端外放静音(音量1格微外放保持内录), 命令输出: $out")
                 } else {
-                    // 恢复被控机物理外放音量至正常级别（约 9 格）
-                    val unmuteCmd = "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 9 2>/dev/null; " +
-                            "cmd media_session volume --stream 3 --set 9 2>/dev/null; " +
-                            "media volume --stream 3 --set 9 2>/dev/null; " +
-                            "settings put system volume_music_speaker 9 2>/dev/null; " +
-                            "settings put system volume_music 9 2>/dev/null"
+                    // 恢复被控机物理外放音量至正常级别（约 10 格，满格15）
+                    // 必须先解除底层 set-volume-key-mute 静音，并补发多次音量加键 (keyevent 24) 解除底层按键静音状态
+                    val unmuteCmd = "cmd audio set-volume-key-mute 3 0 2>/dev/null; " +
+                            "CLASSPATH=/data/local/tmp/app-helper.jar app_process / com.toolbox.adbhelper.server.AppHelper volume 10 2>/dev/null; " +
+                            "cmd media_session volume --stream 3 --set 10 2>/dev/null; " +
+                            "media volume --stream 3 --set 10 2>/dev/null; " +
+                            "settings put system volume_music_speaker 10 2>/dev/null; " +
+                            "settings put system volume_music 10 2>/dev/null; " +
+                            "input keyevent 24 24 24 2>/dev/null"
                     val out = targetClient.executeShell(unmuteCmd, 3500)
-                    Log.i(TAG, "已恢复被控端正常媒体外放音量(音量9), 命令输出: $out")
+                    Log.i(TAG, "已恢复被控端正常媒体外放音量(音量10), 命令输出: $out")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "设置对端静音失败: ${e.message}")
@@ -111,6 +116,9 @@ class AudioStreamPlayer(private val context: Context) {
             if (currentVol == 0) {
                 onStatus?.invoke("提示：本机当前媒体音量为静音，请按音量键调大", false)
             }
+
+            // 关键：启动音频前强制同步对端物理外放状态，未勾选静音时立即恢复正常发声(消除此前可能残留的静音状态)
+            setDeviceMuted(adbClient, muteDevice)
 
             // 模式 3: Sndcpy 伴侣模式 (Android 10+ 官方稳定系统内录)
             if (audioSource == 3) {
@@ -168,6 +176,11 @@ class AudioStreamPlayer(private val context: Context) {
                 }
             }
 
+            // 启动前先停止旧实例，保证拉起全新任务并触发 MediaProjection 授权
+            try {
+                adbClient.executeShell("am force-stop $SNDCPY_PACKAGE 2>/dev/null", 2000)
+            } catch (_: Exception) {}
+
             // 合并执行：预授权、屏幕唤醒与拉起 Sndcpy MainActivity（合并为一条指令，大幅减少3~4秒的开销与延迟）
             onStatus?.invoke("正在唤醒 Sndcpy 服务 (若对端弹出权限请允许)...", false)
             val prepCmd = "cmd appops set $SNDCPY_PACKAGE PROJECT_MEDIA allow 2>/dev/null; " +
@@ -214,10 +227,8 @@ class AudioStreamPlayer(private val context: Context) {
 
         initAudioTrackAndPlay(stream, "Sndcpy 高清系统内录")
 
-        // 音频流稳定连接后，再优雅执行被控端物理外放静音
-        if (muteDevice) {
-            setDeviceMuted(adbClient, true)
-        }
+        // 音频流稳定连接后，按设置同步对端外放音量状态
+        setDeviceMuted(adbClient, muteDevice)
     }
 
     /**
@@ -335,9 +346,7 @@ class AudioStreamPlayer(private val context: Context) {
 
         initAudioTrackAndPlay(stream, "音频已连接 (48kHz 双声道低延迟)")
 
-        if (muteDevice) {
-            setDeviceMuted(adbClient, true)
-        }
+        setDeviceMuted(adbClient, muteDevice)
     }
 
     /**
@@ -348,6 +357,26 @@ class AudioStreamPlayer(private val context: Context) {
         // 模式 0 (听歌高保真)：8倍缓冲 (约 300ms 动态防抖防爆音)；模式 1 (极速低延迟)：2倍缓冲 (约 30ms 响应)
         val bufferMultiplier = if (audioQualityMode == 0) 8 else 2
         val bufferSize = (minBufSize * bufferMultiplier).coerceAtLeast(if (audioQualityMode == 0) 32768 else 4096)
+
+        // 关键：在主控端主动申请系统音频焦点 (Audio Focus)，确保底层 AudioPolicy 不会静音当前应用
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val req = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .build()
+                focusRequest = req
+                audioManager?.requestAudioFocus(req)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            }
+        } catch (_: Exception) {}
 
         val track = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             AudioTrack.Builder()
@@ -378,6 +407,10 @@ class AudioStreamPlayer(private val context: Context) {
                 AudioTrack.MODE_STREAM
             )
         }
+
+        try {
+            track.setVolume(1.0f)
+        } catch (_: Exception) {}
 
         audioTrack = track
         track.play()
@@ -411,21 +444,27 @@ class AudioStreamPlayer(private val context: Context) {
                         if (blockPeak > periodMaxPeak) periodMaxPeak = blockPeak
 
                         // 动态软件数字增益算法 (16-bit PCM 立体声无损放大与削波平滑)
-                        val currentGain = audioGain
-                        if (currentGain > 1.05f) {
-                            applyPcmGain(buffer, read, currentGain)
+                        val effectiveGain = if (isDeviceMuted && audioGain <= 1.05f) {
+                            // 当被控端处于微音量静音模式且未额外配置强增益时，自动补偿 3.0x 数字增益，保证控制端发声音量充沛
+                            3.0f
+                        } else {
+                            audioGain
+                        }
+
+                        if (effectiveGain > 1.05f) {
+                            applyPcmGain(buffer, read, effectiveGain)
                         }
 
                         track.write(buffer, 0, read)
                         totalBytesReceived += read
 
                         val now = System.currentTimeMillis()
-                        if (now - lastDiagTime >= 2000L) {
+                        if (now - lastDiagTime >= 2500L) {
                             lastDiagTime = now
                             val peak = periodMaxPeak
                             periodMaxPeak = 0
                             if (peak == 0) {
-                                onStatus?.invoke("音频通道就绪 [对端信号电平: 0% 静音]", false)
+                                onStatus?.invoke("音频通道已就绪 [对端信号电平: 0% 静音，请播放音乐测试]", false)
                             } else {
                                 val percent = (peak * 100 / 32767).coerceIn(1, 100)
                                 onStatus?.invoke("音频实时播放中 [信号电平: $percent%]", false)
@@ -497,6 +536,21 @@ class AudioStreamPlayer(private val context: Context) {
 
         playbackThread?.interrupt()
         playbackThread = null
+
+        // 释放主控端申请的音频焦点
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                (focusRequest as? android.media.AudioFocusRequest)?.let {
+                    audioManager?.abandonAudioFocusRequest(it)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(null)
+            }
+        } catch (_: Exception) {}
+        focusRequest = null
+
         Log.i(TAG, "音频转发已停止并安全释放")
     }
 
