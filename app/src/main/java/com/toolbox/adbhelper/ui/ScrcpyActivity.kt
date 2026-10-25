@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.*
 import android.widget.ArrayAdapter
 import android.widget.FrameLayout
@@ -578,8 +579,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
 
-        // 从后台切回前台时，关闭常驻通知，主动检查连接并恢复推流
-        AudioPlaybackService.stop(this)
+        // 从后台切回前台时，主动检查连接并恢复推流与画布绑定
         checkAndResumeStream()
     }
 
@@ -596,13 +596,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         val isAudioActive = scrcpyManager?.isAudioPlaying() == true
         if (config.enableAudio && config.backgroundAudio && isAudioActive) {
-            // 用户开启了后台听歌：仅暂停画面视频推流以极大省电省流，持续保持被控端音频传输与播放
-            scrcpyManager?.stopVideoStream()
-            streamJob?.cancel()
-            watchdogJob?.cancel()
-            AudioPlaybackService.start(this)
+            // 用户开启了后台听歌模式：此时前台服务与系统级 WakeLock/WifiLock 已在常驻运行
+            // Surface 已在 surfaceDestroyed 中脱绑（停止 GPU 绘制节约电量），通信链路与音频继续流畅播放
+            Log.i("ScrcpyActivity", "已进入后台听歌保活模式，音频持续稳定输出")
         } else {
-            // 未开启后台音频或音频未激活，保持原有的超时保护策略
+            // 未开启后台音频或音频未激活，保持原有的 60 秒超时断开保护
             backgroundTimeoutJob = lifecycleScope.launch {
                 delay(60000)
                 if (isActivityStopped) {

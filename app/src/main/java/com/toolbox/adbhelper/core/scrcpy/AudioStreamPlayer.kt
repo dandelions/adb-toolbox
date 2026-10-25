@@ -308,6 +308,9 @@ class AudioStreamPlayer(private val context: Context) {
         Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
         onStatus?.invoke(successMessage, false)
 
+        // 启动系统级前台保活服务与唤醒锁，确保按 Home 键切后台后音频持续播放不中断
+        AudioPlaybackService.start(context)
+
         playbackThread = Thread({
             val buffer = ByteArray(4096)
             val input = stream.inputStream
@@ -349,6 +352,10 @@ class AudioStreamPlayer(private val context: Context) {
      */
     fun stop() {
         if (!isPlaying.getAndSet(false)) return
+
+        try {
+            AudioPlaybackService.stop(context)
+        } catch (_: Exception) {}
 
         try {
             audioTrack?.let {
