@@ -469,7 +469,8 @@ class ScrcpyManager(
             } finally {
                 synchronized(this@ScrcpyManager) {
                     if (streamThread == Thread.currentThread()) {
-                        stopStream()
+                        // 关键修复：视频接收线程异常或退出时，仅停止视频推流，绝不能打断独立运行的音频流
+                        stopVideoStream()
                     }
                 }
             }

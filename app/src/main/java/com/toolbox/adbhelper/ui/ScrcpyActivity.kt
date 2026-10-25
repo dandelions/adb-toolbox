@@ -757,11 +757,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             scrcpyManager?.updateAdbClient(client)
         }
 
-        // 3. 主动唤醒屏幕
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                scrcpyManager?.turnScreenOn()
-            } catch (_: Exception) {}
+        // 3. 若当前未在推流，主动唤醒屏幕
+        if (scrcpyManager?.isStreamingNow() != true) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    scrcpyManager?.turnScreenOn()
+                } catch (_: Exception) {}
+            }
         }
 
         // 4. 按照用户当前选择的模式拉起画面
@@ -801,7 +803,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (isReconnecting || isActivityStopped) return
         isReconnecting = true
 
-        stopStreaming()
+        stopStreaming(keepAudioIfPlaying = true)
         binding.surfaceView.visibility = View.VISIBLE
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
@@ -946,7 +948,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isFallbackMode = false
         watchdogJob?.cancel()
         watchdogJob = null
-        scrcpyManager?.stopStream()
+
+        // 关键保护：若音频正在播放（如后台听歌中切回前台），仅停止视频推流，绝不能打断正在播放的音频流
+        if (scrcpyManager?.isAudioPlaying() == true) {
+            scrcpyManager?.stopVideoStream()
+        } else {
+            scrcpyManager?.stopStream()
+        }
         streamJob?.cancel()
         streamJob = null
 
@@ -1079,10 +1087,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         )
     }
 
-    private fun stopStreaming() {
+    private fun stopStreaming(keepAudioIfPlaying: Boolean = false) {
         watchdogJob?.cancel()
         watchdogJob = null
-        scrcpyManager?.stopStream()
+        if (keepAudioIfPlaying && scrcpyManager?.isAudioPlaying() == true) {
+            scrcpyManager?.stopVideoStream()
+        } else {
+            scrcpyManager?.stopStream()
+        }
         streamJob?.cancel()
         streamJob = null
     }
