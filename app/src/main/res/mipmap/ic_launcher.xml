@@ -1,0 +1,188 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 背景带 24dp 圆角矩形裁切 -->
+    <path android:pathData="M24,0 h60 a24,24 0 0,1 24,24 v60 a24,24 0 0,1 -24,24 h-60 a24,24 0 0,1 -24,-24 v-60 a24,24 0 0,1 24,-24 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108">
+                <item android:offset="0.0" android:color="#0A1128" />
+                <item android:offset="0.5" android:color="#101F42" />
+                <item android:offset="1.0" android:color="#080D1A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 中心径向科技光晕 -->
+    <path android:pathData="M24,0 h60 a24,24 0 0,1 24,24 v60 a24,24 0 0,1 -24,24 h-60 a24,24 0 0,1 -24,-24 v-60 a24,24 0 0,1 24,-24 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="56"
+                android:gradientRadius="50">
+                <item android:offset="0.0" android:color="#5900B4D8" />
+                <item android:offset="0.7" android:color="#0D0077B6" />
+                <item android:offset="1.0" android:color="#0003045E" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 背景科技装饰环 -->
+    <path
+        android:strokeColor="#261E3A8A"
+        android:strokeWidth="0.8"
+        android:pathData="M54,10 A44,44 0 1,1 53.99,10" />
+    <path
+        android:strokeColor="#330284C7"
+        android:strokeWidth="0.6"
+        android:pathData="M54,16 A38,38 0 1,1 53.99,16" />
+
+    <!-- Android 标志性经典天线 (左) -->
+    <path
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M42,32 L34,19">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="42"
+                android:startY="32"
+                android:endX="34"
+                android:endY="19">
+                <item android:offset="0.0" android:color="#3DDC84" />
+                <item android:offset="1.0" android:color="#00C853" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Android 标志性经典天线 (右) -->
+    <path
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M66,32 L74,19">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="66"
+                android:startY="32"
+                android:endX="74"
+                android:endY="19">
+                <item android:offset="0.0" android:color="#3DDC84" />
+                <item android:offset="1.0" android:color="#00C853" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 终端/设备主体外壳 (圆角矩形 宽 60, 高 50, rx 12) -->
+    <path
+        android:pathData="M36,31 h36 a12,12 0 0,1 12,12 v26 a12,12 0 0,1 -12,12 h-36 a12,12 0 0,1 -12,-12 v-26 a12,12 0 0,1 12,-12 z"
+        android:strokeWidth="1.8">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="24"
+                android:startY="31"
+                android:endX="84"
+                android:endY="81">
+                <item android:offset="0.0" android:color="#1E293B" />
+                <item android:offset="1.0" android:color="#0F172A" />
+            </gradient>
+        </aapt:attr>
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="24"
+                android:startY="31"
+                android:endX="84"
+                android:endY="81">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="1.0" android:color="#00E5FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 终端内部深黑镜面显示屏 (宽 52, 高 42, rx 8) -->
+    <path
+        android:fillColor="#070B14"
+        android:pathData="M36,35 h36 a8,8 0 0,1 8,8 v26 a8,8 0 0,1 -8,8 h-36 a8,8 0 0,1 -8,-8 v-26 a8,8 0 0,1 8,-8 z" />
+
+    <!-- 核心终端符号：命令行提示符 '>' (亮青色加粗) -->
+    <path
+        android:strokeWidth="4.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,44 L48,53 L36,62">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="36"
+                android:startY="44"
+                android:endX="48"
+                android:endY="62">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="1.0" android:color="#00E5FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 核心终端符号：下划线光标 '_' (Android 官方绿加粗) -->
+    <path
+        android:strokeWidth="4.8"
+        android:strokeLineCap="round"
+        android:pathData="M52,62 L64,62">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="52"
+                android:startY="62"
+                android:endX="64"
+                android:endY="62">
+                <item android:offset="0.0" android:color="#3DDC84" />
+                <item android:offset="1.0" android:color="#00C853" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 底部互联桥梁 (Bridge) 弧形光轨 -->
+    <path
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M34,71 C44,74 64,74 74,71">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="34"
+                android:startY="71"
+                android:endX="74"
+                android:endY="71">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="0.5" android:color="#00E5FF" />
+                <item android:offset="1.0" android:color="#3DDC84" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 桥梁数据节点 (左：青蓝) -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M34,69.2 a1.8,1.8 0 1,1 -0.01,0 Z" />
+
+    <!-- 桥梁数据节点 (右：绿色) -->
+    <path
+        android:fillColor="#3DDC84"
+        android:pathData="M74,69.2 a1.8,1.8 0 1,1 -0.01,0 Z" />
+
+    <!-- 桥梁中央互联节点 -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M54,71.5 a1.5,1.5 0 1,1 -0.01,0 Z" />
+</vector>
