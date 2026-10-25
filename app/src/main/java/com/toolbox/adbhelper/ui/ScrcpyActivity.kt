@@ -69,6 +69,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var reconnectJob: Job? = null
     private var backgroundTimeoutJob: Job? = null
     private var streamRetryCount = 0
+    private var isFabMovedByUser = false
 
     companion object {
         private const val PREFS_NAME = "scrcpy_prefs"
@@ -231,10 +232,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.btnToolbarSettings.setOnClickListener { showSettingsDialog() }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
-        // 浮动悬浮球（全屏或隐藏导航栏时快速唤出控制菜单，支持一键切换虚拟耳机与设置）
+        // 浮动悬浮球（全屏或隐藏导航栏时快速唤出控制菜单，支持一键切换虚拟耳机与设置，且支持手势自由拖动）
         binding.fabQuickMenu.setOnClickListener {
             showQuickMenuDialog()
         }
+        setupDraggableFab()
 
         // 诊断栏快捷按钮
         binding.btnQuickSwitchMode.setOnClickListener {
@@ -265,6 +267,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val (curDevW, curDevH) = getCurrentDeviceDimensions()
                 val (targetW, targetH) = manager.calculateTargetSize(curDevW, curDevH, config.maxSize, w, h)
                 adjustViewAspectRatio(targetW, targetH)
+                if (isFabMovedByUser) {
+                    clampFabPosition()
+                }
             }
         }
     }
@@ -322,13 +327,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val bottomMarginDp = if (config.isFullscreen) 24 else 16
         val bottomMarginPx = (bottomMarginDp * density).toInt()
 
-        val fabParams = binding.fabQuickMenu.layoutParams as FrameLayout.LayoutParams
-        fabParams.gravity = Gravity.END or Gravity.BOTTOM
-        // 任务栏高约 56dp，Mini FAB 高 40dp，底部对齐偏移 +8dp 达到水平中心一致
-        val fabBottomMarginPx = ((bottomMarginDp + 8) * density).toInt()
-        val fabEndMarginPx = (16 * density).toInt()
-        fabParams.setMargins(0, 0, fabEndMarginPx, fabBottomMarginPx)
-        binding.fabQuickMenu.layoutParams = fabParams
+        if (!isFabMovedByUser) {
+            val fabParams = binding.fabQuickMenu.layoutParams as FrameLayout.LayoutParams
+            fabParams.gravity = Gravity.END or Gravity.BOTTOM
+            // 任务栏高约 56dp，精简悬浮球高 28dp，底部对齐偏移 +14dp 达到水平中心一致
+            val fabBottomMarginPx = ((bottomMarginDp + 14) * density).toInt()
+            val fabEndMarginPx = (16 * density).toInt()
+            fabParams.setMargins(0, 0, fabEndMarginPx, fabBottomMarginPx)
+            binding.fabQuickMenu.layoutParams = fabParams
+        } else {
+            clampFabPosition()
+        }
 
         when (position) {
             NavPosition.BOTTOM -> {
@@ -368,6 +377,89 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.navBarWrapper.layoutParams = wrapperParams
         binding.navBarWrapper.bringToFront()
         binding.fabQuickMenu.bringToFront()
+    }
+
+    /**
+     * 为悬浮球绑定手势拖拽监听，支持在屏幕内自由拖动，且精准区分点击与拖动
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupDraggableFab() {
+        val fab = binding.fabQuickMenu
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var startRawX = 0f
+        var startRawY = 0f
+        var initialTranslationX = 0f
+        var initialTranslationY = 0f
+        var isDragging = false
+
+        fab.setOnTouchListener { view, event ->
+            val parent = view.parent as? View ?: return@setOnTouchListener false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    initialTranslationX = view.translationX
+                    initialTranslationY = view.translationY
+                    isDragging = false
+                    view.alpha = 1.0f
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - startRawX
+                    val dy = event.rawY - startRawY
+                    if (!isDragging && Math.hypot(dx.toDouble(), dy.toDouble()) > touchSlop) {
+                        isDragging = true
+                    }
+                    if (isDragging) {
+                        isFabMovedByUser = true
+                        val padding = (4 * resources.displayMetrics.density).toInt()
+                        val minTranslationX = -view.left.toFloat() + padding
+                        val maxTranslationX = (parent.width - view.right).toFloat() - padding
+                        val minTranslationY = -view.top.toFloat() + padding
+                        val maxTranslationY = (parent.height - view.bottom).toFloat() - padding
+
+                        if (minTranslationX <= maxTranslationX) {
+                            view.translationX = (initialTranslationX + dx).coerceIn(minTranslationX, maxTranslationX)
+                        }
+                        if (minTranslationY <= maxTranslationY) {
+                            view.translationY = (initialTranslationY + dy).coerceIn(minTranslationY, maxTranslationY)
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.alpha = 0.85f
+                    if (!isDragging) {
+                        view.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * 保持用户自定义拖动的悬浮球始终位于屏幕父容器可视范围内部
+     */
+    private fun clampFabPosition() {
+        val fab = binding.fabQuickMenu
+        val parent = fab.parent as? View ?: return
+        fab.post {
+            if (parent.width > 0 && parent.height > 0 && fab.width > 0 && fab.height > 0) {
+                val padding = (4 * resources.displayMetrics.density).toInt()
+                val minX = -fab.left.toFloat() + padding
+                val maxX = (parent.width - fab.right).toFloat() - padding
+                val minY = -fab.top.toFloat() + padding
+                val maxY = (parent.height - fab.bottom).toFloat() - padding
+                if (minX <= maxX) {
+                    fab.translationX = fab.translationX.coerceIn(minX, maxX)
+                }
+                if (minY <= maxY) {
+                    fab.translationY = fab.translationY.coerceIn(minY, maxY)
+                }
+            }
+        }
     }
 
     private fun getMappedDeviceCoords(touchX: Float, touchY: Float, view: View, targetW: Int, targetH: Int): Pair<Int, Int>? {
@@ -1263,7 +1355,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             headsetAction,
             fullscreenAction,
             "📱 被控端熄屏/亮屏",
-            "🧭 显示底部控制栏",
+            "🧭 重置控制栏与悬浮球位置",
             "🔄 切换投屏模式 (流式/截图)",
             "⚙️ 投屏设置",
             "🚪 退出投屏"
@@ -1295,9 +1387,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     2 -> toggleDeviceScreen()
                     3 -> {
                         config.navPosition = NavPosition.BOTTOM
+                        isFabMovedByUser = false
+                        binding.fabQuickMenu.translationX = 0f
+                        binding.fabQuickMenu.translationY = 0f
                         applyNavPosition(config.navPosition)
                         saveConfig()
-                        Toast.makeText(this, "已将控制栏重置到底部", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "已重置控制栏与悬浮球位置", Toast.LENGTH_SHORT).show()
                     }
                     4 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {

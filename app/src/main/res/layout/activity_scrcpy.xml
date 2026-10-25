@@ -251,20 +251,21 @@
 
     </FrameLayout>
 
-    <!-- 浮动悬浮球（右下角与底部任务栏同一高度，全屏或隐藏控制栏时快速唤起） -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
+    <!-- 浮动悬浮球（尺寸缩小一倍精致圆球，支持全屏/隐藏控制栏时自由拖动与快速唤起菜单） -->
+    <ImageView
         android:id="@+id/fabQuickMenu"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="24dp"
         android:alpha="0.85"
+        android:background="@drawable/bg_floating_ball"
         android:contentDescription="控制菜单"
+        android:elevation="6dp"
+        android:padding="6dp"
         android:src="@drawable/ic_nav_more"
         android:visibility="gone"
-        app:backgroundTint="#801E1E1E"
-        app:fabSize="mini"
         app:tint="#FFFFFF" />
 
 </FrameLayout>
