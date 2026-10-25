@@ -20,6 +20,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
+import com.toolbox.adbhelper.core.adb.AdbClient
 import com.toolbox.adbhelper.core.model.NavPosition
 import com.toolbox.adbhelper.core.model.ScrcpyConfig
 import com.toolbox.adbhelper.core.model.ScrcpyPresets
@@ -92,27 +93,48 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding = ActivityScrcpyBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        var client = DeviceManager.adbClient
-        if (client == null || !client.isConnected) {
-            // 给瞬时状态切换预留短暂的缓冲时间
-            for (i in 0 until 3) {
-                if (DeviceManager.adbClient?.isConnected == true) {
-                    client = DeviceManager.adbClient
-                    break
-                }
-                Thread.sleep(150)
-            }
-        }
-
-        if (client == null || !client.isConnected) {
-            Toast.makeText(this, "ADB 设备未连接或已断开", Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
-
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadConfig()
 
+        initViews()
+        initTouchControl()
+
+        binding.surfaceView.setZOrderMediaOverlay(true)
+        binding.surfaceView.holder.addCallback(this)
+
+        val client = DeviceManager.adbClient
+        if (client != null && client.isConnected) {
+            setupScrcpyManager(client)
+            initDeviceResolutionAndStart()
+        } else {
+            // 切后台恢复或瞬态离线时，异步自动尝试重连，展示加载状态，绝不强行 finish
+            binding.pbLoading.visibility = View.VISIBLE
+            binding.tvStreamStatus.visibility = View.VISIBLE
+            binding.tvStreamStatus.text = "正在恢复 ADB 设备连接..."
+            updateDiagBar("#FFB300", "正在恢复 ADB 连接...")
+
+            lifecycleScope.launch {
+                val reconnected = DeviceManager.getOrReconnectClient(this@ScrcpyActivity)
+                if (reconnected != null && reconnected.isConnected) {
+                    setupScrcpyManager(reconnected)
+                    initDeviceResolutionAndStart()
+                } else {
+                    binding.pbLoading.visibility = View.GONE
+                    binding.tvStreamStatus.text = "ADB 设备连接已断开\n【点击此处重新连接】"
+                    updateDiagBar("#F44336", "连接已断开 | 点击重试")
+                    binding.tvStreamStatus.setOnClickListener {
+                        triggerAutoReconnect(force = true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupScrcpyManager(client: AdbClient) {
+        if (scrcpyManager != null) {
+            scrcpyManager?.updateAdbClient(client)
+            return
+        }
         scrcpyManager = ScrcpyManager(this, client).apply {
             onAudioStatus = { msg, isError ->
                 runOnUiThread {
@@ -130,18 +152,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 Toast.makeText(this@ScrcpyActivity, "后台音频播放已停止", Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
-        initViews()
-        initTouchControl()
-
-        binding.surfaceView.setZOrderMediaOverlay(true)
-        binding.surfaceView.holder.addCallback(this)
-
+    private fun initDeviceResolutionAndStart() {
+        val manager = scrcpyManager ?: return
         lifecycleScope.launch(Dispatchers.IO) {
             // 主动唤醒屏幕并解锁无密码锁屏，防止对端黑屏/息屏导致捕获全黑
-            scrcpyManager?.turnScreenOn()
+            manager.turnScreenOn()
 
-            val (w, h) = scrcpyManager?.getDeviceResolution() ?: Pair(1080, 2400)
+            val (w, h) = manager.getDeviceResolution()
             physicalWidth = w
             physicalHeight = h
             videoWidth = w
@@ -195,10 +214,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
-        val manager = scrcpyManager ?: return
-        binding.btnBack.setOnClickListener { lifecycleScope.launch { manager.sendBack() } }
-        binding.btnHome.setOnClickListener { lifecycleScope.launch { manager.sendHome() } }
-        binding.btnRecent.setOnClickListener { lifecycleScope.launch { manager.sendAppSwitch() } }
+        binding.btnBack.setOnClickListener { lifecycleScope.launch { scrcpyManager?.sendBack() } }
+        binding.btnHome.setOnClickListener { lifecycleScope.launch { scrcpyManager?.sendHome() } }
+        binding.btnRecent.setOnClickListener { lifecycleScope.launch { scrcpyManager?.sendAppSwitch() } }
 
         // 虚拟耳机（控制被控端扬声器物理静音/恢复）
         binding.btnHeadset.setOnClickListener {
@@ -265,7 +283,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val oldH = oldBottom - oldTop
             if (w > 0 && h > 0 && (w != oldW || h != oldH)) {
                 val (curDevW, curDevH) = getCurrentDeviceDimensions()
-                val (targetW, targetH) = manager.calculateTargetSize(curDevW, curDevH, config.maxSize, w, h)
+                val (targetW, targetH) = scrcpyManager?.calculateTargetSize(curDevW, curDevH, config.maxSize, w, h)
+                    ?: Pair(w, h)
                 adjustViewAspectRatio(targetW, targetH)
                 if (isFabMovedByUser) {
                     clampFabPosition()
@@ -727,12 +746,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // 1. 检查 ADB 连接状态
         val client = DeviceManager.adbClient
         if (client == null || !client.isConnected) {
-            triggerAutoReconnect(force = true)
+            triggerAutoReconnect(force = false)
             return
         }
 
-        // 2. 连接有效，同步更新 manager 的 client
-        scrcpyManager?.updateAdbClient(client)
+        // 2. 连接有效，确保 manager 就绪并同步更新 client
+        if (scrcpyManager == null) {
+            setupScrcpyManager(client)
+        } else {
+            scrcpyManager?.updateAdbClient(client)
+        }
 
         // 3. 主动唤醒屏幕
         lifecycleScope.launch(Dispatchers.IO) {
@@ -815,7 +838,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                 val client = DeviceManager.adbClient
                 if (reconnected && client != null && client.isConnected) {
-                    scrcpyManager?.updateAdbClient(client)
+                    if (scrcpyManager == null) {
+                        setupScrcpyManager(client)
+                    } else {
+                        scrcpyManager?.updateAdbClient(client)
+                    }
                     reconnectAttempts = 0
                     Toast.makeText(this@ScrcpyActivity, "设备重连成功，正在恢复投屏画面...", Toast.LENGTH_SHORT).show()
                     checkAndResumeStream()

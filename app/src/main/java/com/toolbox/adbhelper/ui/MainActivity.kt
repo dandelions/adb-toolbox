@@ -91,17 +91,25 @@ class MainActivity : AppCompatActivity() {
         binding.btnFeatureMirror.setOnClickListener {
             val client = DeviceManager.adbClient
             if (client == null || !client.isConnected) {
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("屏幕投屏")
-                    .setMessage("当前尚未连接 ADB 设备。\n您可以前往连接，或者在连接前配置投屏的分辨率与码率预设。")
-                    .setPositiveButton("连接设备") { _, _ ->
-                        startActivity(Intent(this, ConnectActivity::class.java))
+                lifecycleScope.launch {
+                    val reconnected = DeviceManager.getOrReconnectClient(this@MainActivity)
+                    if (reconnected != null && reconnected.isConnected) {
+                        refreshDeviceState()
+                        startActivity(Intent(this@MainActivity, ScrcpyActivity::class.java))
+                    } else {
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("屏幕投屏")
+                            .setMessage("当前尚未连接 ADB 设备。\n您可以前往连接，或者在连接前配置投屏的分辨率与码率预设。")
+                            .setPositiveButton("连接设备") { _, _ ->
+                                startActivity(Intent(this@MainActivity, ConnectActivity::class.java))
+                            }
+                            .setNeutralButton("配置投屏预设") { _, _ ->
+                                showScrcpyPresetDialog()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
                     }
-                    .setNeutralButton("配置投屏预设") { _, _ ->
-                        showScrcpyPresetDialog()
-                    }
-                    .setNegativeButton("取消", null)
-                    .show()
+                }
             } else {
                 startActivity(Intent(this, ScrcpyActivity::class.java))
             }
@@ -136,8 +144,16 @@ class MainActivity : AppCompatActivity() {
     private fun checkConnectionAndRun(action: () -> Unit) {
         val client = DeviceManager.adbClient
         if (client == null || !client.isConnected) {
-            Toast.makeText(this, "请先连接 ADB 设备", Toast.LENGTH_SHORT).show()
-            startActivity(Intent(this, ConnectActivity::class.java))
+            lifecycleScope.launch {
+                val reconnectedClient = DeviceManager.getOrReconnectClient(this@MainActivity)
+                if (reconnectedClient != null && reconnectedClient.isConnected) {
+                    refreshDeviceState()
+                    action()
+                } else {
+                    Toast.makeText(this@MainActivity, "请先连接 ADB 设备", Toast.LENGTH_SHORT).show()
+                    startActivity(Intent(this@MainActivity, ConnectActivity::class.java))
+                }
+            }
         } else {
             action()
         }
@@ -169,9 +185,6 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             lastLoadedDeviceId = null
-            if (dev != null || client != null) {
-                DeviceManager.disconnect()
-            }
             binding.tvDeviceName.text = "未连接任何设备"
             binding.tvDeviceStatus.text = "点击连接设备 (WiFi / OTG)"
             binding.btnConnect.text = "连接"

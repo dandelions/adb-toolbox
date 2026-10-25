@@ -24,7 +24,6 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:launchMode="singleTask"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -50,7 +49,8 @@
         <activity
             android:name=".ui.ScrcpyActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:label="屏幕投屏" />
 
         <activity

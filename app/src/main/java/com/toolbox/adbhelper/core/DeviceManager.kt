@@ -98,16 +98,9 @@ object DeviceManager {
     suspend fun tryReconnect(context: Context, force: Boolean = false): Boolean = reconnectMutex.withLock {
         withContext(Dispatchers.IO) {
             if (!force && adbClient?.isConnected == true) {
-                // 发送快速 ping 探测连接真实性，防止底层 TCP 处于半关状态导致假在线
-                try {
-                    val ping = adbClient?.executeShell("echo ok", 2500)
-                    if (ping?.contains("ok") == true) {
-                        return@withContext true
-                    }
-                } catch (_: Exception) {
-                    Log.w(TAG, "Existing ADB client failed ping probe, forcing full reconnect")
-                    try { adbClient?.connection?.close() } catch (_: Exception) {}
-                    adbClient = null
+                val client = adbClient
+                if (client != null && client.isConnected) {
+                    return@withContext true
                 }
             } else if (force) {
                 try { adbClient?.connection?.close() } catch (_: Exception) {}
