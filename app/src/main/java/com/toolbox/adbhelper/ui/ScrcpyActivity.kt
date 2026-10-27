@@ -91,6 +91,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_MUTE_DEVICE = "scrcpy_mute_device"
         private const val KEY_BG_AUDIO = "scrcpy_bg_audio"
         private const val KEY_AUDIO_GAIN = "scrcpy_audio_gain"
+        private const val BG_AUDIO_SILENCE_TIMEOUT_MS = 120_000L // 后台连续无声超过 2 分钟(120秒)自动断开传输
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -734,20 +735,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         bgSilenceMonitorJob = null
 
         val isAudioPlaying = scrcpyManager?.isAudioPlaying() == true
-        val hasSound = scrcpyManager?.hasRecentSound(3000L) == true
 
-        if (config.enableAudio && config.backgroundAudio && isAudioPlaying && hasSound) {
-            // 用户开启了后台听歌模式且当前确实有音频在播放：进入后台听歌保活模式并启动静音检测监控
-            Log.i("ScrcpyActivity", "当前有音频播放，进入后台听歌保活模式")
+        if (config.enableAudio && config.backgroundAudio && isAudioPlaying) {
+            // 用户开启了后台听歌模式：启动后台静音监控，持续无声超过 2 分钟则自动断开传输
+            Log.i("ScrcpyActivity", "已进入后台音频保活模式，持续 2 分钟无声将自动断开传输")
             startBackgroundSilenceMonitor()
         } else {
-            // 后台无声音播放，或未开启后台听歌：立即主动断开音频传输，释放后台常驻服务与系统锁
-            if (isAudioPlaying) {
-                Log.i("ScrcpyActivity", "后台无声音播放，主动断开音频传输与保活服务")
-                wasAudioInterruptedByBgSilence = true
-                scrcpyManager?.stopAudioStream()
-            }
-            // 启动 60 秒超时断开保护
+            // 未开启后台音频或音频未激活：保持原有的 60 秒超时断开保护
             backgroundTimeoutJob = lifecycleScope.launch {
                 delay(60000)
                 if (isActivityStopped) {
@@ -758,20 +752,29 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     /**
-     * 后台运行期间持续监控音频活动状态，一旦音乐播放完毕(连续静音)立即自动断开音频传输与保活服务
+     * 后台运行期间持续监控音频活动状态，一旦无声音播放持续超过 2 分钟(120秒)，立即自动断开音频传输与保活服务
      */
     private fun startBackgroundSilenceMonitor() {
         bgSilenceMonitorJob?.cancel()
         bgSilenceMonitorJob = lifecycleScope.launch(Dispatchers.IO) {
+            val bgStartTime = System.currentTimeMillis()
             while (isActive && isActivityStopped) {
                 delay(1000)
                 if (scrcpyManager?.isAudioPlaying() != true) break
-                val hasSound = scrcpyManager?.hasRecentSound(4000L) == true
-                if (!hasSound) {
-                    Log.i("ScrcpyActivity", "后台检测到音频已停止播放(连续静音)，自动断开音频传输与保活服务")
+
+                val now = System.currentTimeMillis()
+                val lastSoundTime = scrcpyManager?.getLastSoundTime() ?: 0L
+                val baselineTime = if (lastSoundTime > 0L) lastSoundTime else bgStartTime
+                val silentDuration = now - baselineTime
+
+                if (silentDuration >= BG_AUDIO_SILENCE_TIMEOUT_MS) {
+                    Log.i("ScrcpyActivity", "后台无声音播放持续超过 2 分钟 (${silentDuration / 1000}s)，自动断开音频传输与保活服务")
                     wasAudioInterruptedByBgSilence = true
                     withContext(Dispatchers.Main) {
                         scrcpyManager?.stopAudioStream()
+                        if (isActivityStopped) {
+                            stopStreaming()
+                        }
                     }
                     break
                 }

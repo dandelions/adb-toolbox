@@ -615,6 +615,8 @@ class ScrcpyManager(
 
     fun hasRecentSound(timeoutMs: Long = 3000L): Boolean = audioPlayer?.hasRecentSound(timeoutMs) == true
 
+    fun getLastSoundTime(): Long = audioPlayer?.getLastSoundTime() ?: 0L
+
     fun setAudioGain(gain: Float) {
         audioPlayer?.audioGain = gain
     }

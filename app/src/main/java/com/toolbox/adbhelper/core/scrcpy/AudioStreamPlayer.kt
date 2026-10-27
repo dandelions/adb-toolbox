@@ -56,6 +56,8 @@ class AudioStreamPlayer(private val context: Context) {
         return last > 0L && (System.currentTimeMillis() - last) < timeoutMs
     }
 
+    fun getLastSoundTime(): Long = lastActiveSoundTime
+
     /**
      * 状态或错误回调通知
      */
