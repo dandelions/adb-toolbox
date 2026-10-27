@@ -100,6 +100,11 @@ class ScrcpyManager(
      */
     var onAudioStatus: ((message: String, isError: Boolean) -> Unit)? = null
 
+    /**
+     * 音频活动状态(有声/静音)变化监听
+     */
+    var onSoundActiveChanged: ((Boolean) -> Unit)? = null
+
     // 缓存最快且可用的截屏方式 (1: exec, 2: base64, 3: temp_file)
     @Volatile
     private var preferredCaptureMethod = 0
@@ -606,6 +611,10 @@ class ScrcpyManager(
      */
     fun isAudioPlaying(): Boolean = audioPlayer?.isPlaying() == true
 
+    fun isSoundActive(): Boolean = audioPlayer?.isSoundActive == true
+
+    fun hasRecentSound(timeoutMs: Long = 3000L): Boolean = audioPlayer?.hasRecentSound(timeoutMs) == true
+
     fun setAudioGain(gain: Float) {
         audioPlayer?.audioGain = gain
     }
@@ -628,6 +637,7 @@ class ScrcpyManager(
             try {
                 val player = AudioStreamPlayer(context)
                 player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
+                player.onSoundActiveChanged = { active -> onSoundActiveChanged?.invoke(active) }
                 audioPlayer = player
                 kotlinx.coroutines.runBlocking {
                     player.start(adbClient, audioSource, qualityMode, gain, muteDevice)

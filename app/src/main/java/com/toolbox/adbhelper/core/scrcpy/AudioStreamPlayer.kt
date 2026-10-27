@@ -41,6 +41,21 @@ class AudioStreamPlayer(private val context: Context) {
     var isDeviceMuted: Boolean = false
         private set
 
+    @Volatile
+    var isSoundActive: Boolean = false
+        private set
+
+    @Volatile
+    var lastActiveSoundTime: Long = 0L
+        private set
+
+    var onSoundActiveChanged: ((Boolean) -> Unit)? = null
+
+    fun hasRecentSound(timeoutMs: Long = 3000L): Boolean {
+        val last = lastActiveSoundTime
+        return last > 0L && (System.currentTimeMillis() - last) < timeoutMs
+    }
+
     /**
      * 状态或错误回调通知
      */
@@ -321,6 +336,22 @@ class AudioStreamPlayer(private val context: Context) {
                 while (isPlaying.get()) {
                     val read = input.read(buffer, 0, buffer.size)
                     if (read > 0) {
+                        val maxAmp = getMaxAmplitude(buffer, 0, read)
+                        val now = System.currentTimeMillis()
+
+                        if (maxAmp > 40) {
+                            lastActiveSoundTime = now
+                            if (!isSoundActive) {
+                                isSoundActive = true
+                                onSoundActiveChanged?.invoke(true)
+                            }
+                        } else {
+                            if (isSoundActive && (now - lastActiveSoundTime >= 2500L)) {
+                                isSoundActive = false
+                                onSoundActiveChanged?.invoke(false)
+                            }
+                        }
+
                         track.write(buffer, 0, read)
                         totalBytesReceived += read
 
@@ -347,11 +378,29 @@ class AudioStreamPlayer(private val context: Context) {
         }
     }
 
+    private fun getMaxAmplitude(buf: ByteArray, offset: Int, len: Int): Int {
+        var max = 0
+        var i = offset
+        val end = offset + len - 1
+        while (i < end) {
+            val sample = ((buf[i].toInt() and 0xFF) or (buf[i + 1].toInt() shl 8)).toShort().toInt()
+            val abs = Math.abs(sample)
+            if (abs > max) {
+                max = abs
+            }
+            i += 2
+        }
+        return max
+    }
+
     /**
      * 停止音频播放并释放资源
      */
     fun stop() {
         if (!isPlaying.getAndSet(false)) return
+
+        isSoundActive = false
+        lastActiveSoundTime = 0L
 
         try {
             AudioPlaybackService.stop(context)

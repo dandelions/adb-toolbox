@@ -74,6 +74,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var backgroundTimeoutJob: Job? = null
     private var streamRetryCount = 0
     private var isFabMovedByUser = false
+    private var wasAudioInterruptedByBgSilence = false
+    private var bgSilenceMonitorJob: Job? = null
 
     companion object {
         private const val PREFS_NAME = "scrcpy_prefs"
@@ -145,6 +147,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         Toast.makeText(this@ScrcpyActivity, msg, Toast.LENGTH_SHORT).show()
                     }
                     updateAudioDiag(msg, isError)
+                }
+            }
+            onSoundActiveChanged = { active ->
+                runOnUiThread {
+                    if (!isActivityStopped) {
+                        val statusText = if (active) "声音传输中 (有音频播放)" else "音频已连接 (静音待机)"
+                        updateAudioDiag(statusText, false)
+                    }
                 }
             }
         }
@@ -692,6 +702,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isActivityResumed = true
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
+        bgSilenceMonitorJob?.cancel()
+        bgSilenceMonitorJob = null
+
+        // 若此前因后台无声断开过音频，或音频未播放但配置开启，切回前台时自动无感恢复音频通道
+        if (config.enableAudio && scrcpyManager?.isAudioPlaying() != true) {
+            wasAudioInterruptedByBgSilence = false
+            scrcpyManager?.startAudioStream(
+                audioSource = config.audioSource,
+                qualityMode = config.audioQualityMode,
+                gain = config.audioGain,
+                muteDevice = config.muteDeviceAudio
+            )
+        }
 
         // 从后台切回前台时，主动检查连接并恢复推流与画布绑定
         checkAndResumeStream()
@@ -707,18 +730,50 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isActivityStopped = true
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
+        bgSilenceMonitorJob?.cancel()
+        bgSilenceMonitorJob = null
 
-        val isAudioActive = scrcpyManager?.isAudioPlaying() == true
-        if (config.enableAudio && config.backgroundAudio && isAudioActive) {
-            // 用户开启了后台听歌模式：此时前台服务与系统级 WakeLock/WifiLock 已在常驻运行
-            // Surface 已在 surfaceDestroyed 中脱绑（停止 GPU 绘制节约电量），通信链路与音频继续流畅播放
-            Log.i("ScrcpyActivity", "已进入后台听歌保活模式，音频持续稳定输出")
+        val isAudioPlaying = scrcpyManager?.isAudioPlaying() == true
+        val hasSound = scrcpyManager?.hasRecentSound(3000L) == true
+
+        if (config.enableAudio && config.backgroundAudio && isAudioPlaying && hasSound) {
+            // 用户开启了后台听歌模式且当前确实有音频在播放：进入后台听歌保活模式并启动静音检测监控
+            Log.i("ScrcpyActivity", "当前有音频播放，进入后台听歌保活模式")
+            startBackgroundSilenceMonitor()
         } else {
-            // 未开启后台音频或音频未激活，保持原有的 60 秒超时断开保护
+            // 后台无声音播放，或未开启后台听歌：立即主动断开音频传输，释放后台常驻服务与系统锁
+            if (isAudioPlaying) {
+                Log.i("ScrcpyActivity", "后台无声音播放，主动断开音频传输与保活服务")
+                wasAudioInterruptedByBgSilence = true
+                scrcpyManager?.stopAudioStream()
+            }
+            // 启动 60 秒超时断开保护
             backgroundTimeoutJob = lifecycleScope.launch {
                 delay(60000)
                 if (isActivityStopped) {
                     stopStreaming()
+                }
+            }
+        }
+    }
+
+    /**
+     * 后台运行期间持续监控音频活动状态，一旦音乐播放完毕(连续静音)立即自动断开音频传输与保活服务
+     */
+    private fun startBackgroundSilenceMonitor() {
+        bgSilenceMonitorJob?.cancel()
+        bgSilenceMonitorJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive && isActivityStopped) {
+                delay(1000)
+                if (scrcpyManager?.isAudioPlaying() != true) break
+                val hasSound = scrcpyManager?.hasRecentSound(4000L) == true
+                if (!hasSound) {
+                    Log.i("ScrcpyActivity", "后台检测到音频已停止播放(连续静音)，自动断开音频传输与保活服务")
+                    wasAudioInterruptedByBgSilence = true
+                    withContext(Dispatchers.Main) {
+                        scrcpyManager?.stopAudioStream()
+                    }
+                    break
                 }
             }
         }

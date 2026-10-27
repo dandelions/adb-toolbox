@@ -91,16 +91,51 @@ public class AudioForwarder {
             long totalBytesSent = 0;
             long lastLogTime = System.currentTimeMillis();
 
+            boolean isMic = "mic".equalsIgnoreCase(mode) || "voicerecog".equalsIgnoreCase(mode);
+            int silenceThreshold = isMic ? 200 : 40;
+            long lastSoundTime = System.currentTimeMillis();
+            boolean inSilencePause = false;
+            final long SILENCE_DELAY_MS = 1500L; // 连续无声音 1.5 秒后进入暂停传输状态，杜绝空跑流量
+
             while (!Thread.currentThread().isInterrupted()) {
                 int read = recorder.read(buffer, 0, buffer.length);
                 if (read > 0) {
-                    os.write(buffer, 0, read);
-                    os.flush();
-                    totalBytesSent += read;
-
+                    int maxAmp = getMaxAmplitude(buffer, 0, read);
                     long now = System.currentTimeMillis();
+
+                    if (maxAmp > silenceThreshold) {
+                        lastSoundTime = now;
+                        if (inSilencePause) {
+                            inSilencePause = false;
+                            System.out.println("[AudioForwarder] Sound detected (peak=" + maxAmp + "), resuming audio transmission");
+                            System.out.flush();
+                        }
+                        os.write(buffer, 0, read);
+                        os.flush();
+                        totalBytesSent += read;
+                    } else {
+                        // 当前 buffer 为静音
+                        if (now - lastSoundTime < SILENCE_DELAY_MS) {
+                            // 1.5 秒自然缓冲期内，继续传输尾音保证平滑过渡
+                            os.write(buffer, 0, read);
+                            os.flush();
+                            totalBytesSent += read;
+                        } else {
+                            // 超过 1.5 秒无声，停止向网络 Socket 写入数据，网络传输量立刻降为 0
+                            if (!inSilencePause) {
+                                inSilencePause = true;
+                                System.out.println("[AudioForwarder] Silence detected (>1.5s), pausing transmission to save bandwidth");
+                                System.out.flush();
+                            }
+                        }
+                    }
+
                     if (now - lastLogTime >= 3000) {
-                        System.out.println("[AudioForwarder] Stream active: total " + (totalBytesSent / 1024) + " KB sent");
+                        if (!inSilencePause) {
+                            System.out.println("[AudioForwarder] Stream active: total " + (totalBytesSent / 1024) + " KB sent");
+                        } else {
+                            System.out.println("[AudioForwarder] Stream idle (silence): 0 B/s transferred");
+                        }
                         System.out.flush();
                         lastLogTime = now;
                     }
@@ -126,6 +161,22 @@ public class AudioForwarder {
                 try { serverSocket.close(); } catch (Throwable ignored) {}
             }
         }
+    }
+
+    /**
+     * 计算 16-bit PCM 字节流在指定范围内的最大绝对振幅
+     */
+    private static int getMaxAmplitude(byte[] buf, int offset, int len) {
+        int max = 0;
+        int end = offset + len - 1;
+        for (int i = offset; i < end; i += 2) {
+            int sample = (short) ((buf[i] & 0xFF) | (buf[i + 1] << 8));
+            int abs = Math.abs(sample);
+            if (abs > max) {
+                max = abs;
+            }
+        }
+        return max;
     }
 
     /**

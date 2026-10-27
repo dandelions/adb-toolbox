@@ -66,3 +66,51 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 }
+
+tasks.register("buildAppHelperJar") {
+    val serverSrcDir = file("src/main/java/com/toolbox/adbhelper/server")
+    val assetsJar = file("src/main/assets/app-helper.jar")
+    inputs.dir(serverSrcDir)
+    outputs.file(assetsJar)
+
+    doLast {
+        val outDir = layout.buildDirectory.dir("intermediates/helper-classes").get().asFile
+        outDir.deleteRecursively()
+        outDir.mkdirs()
+
+        val androidJar = "${android.sdkDirectory}/platforms/android-${android.compileSdk}/android.jar"
+        val d8 = file("${android.sdkDirectory}/build-tools").listFiles()
+            ?.filter { it.isDirectory && File(it, "d8").exists() }
+            ?.maxByOrNull { it.name }
+            ?.let { File(it, "d8").absolutePath }
+            ?: "d8"
+
+        project.exec {
+            commandLine(
+                "javac", "-source", "8", "-target", "8",
+                "-cp", androidJar,
+                "-d", outDir.absolutePath,
+                "${serverSrcDir.absolutePath}/AppHelper.java",
+                "${serverSrcDir.absolutePath}/AudioForwarder.java"
+            )
+        }
+
+        project.exec {
+            commandLine(
+                d8, "--min-api", "24",
+                "--output", outDir.absolutePath,
+                "${outDir.absolutePath}/com/toolbox/adbhelper/server/AppHelper.class",
+                "${outDir.absolutePath}/com/toolbox/adbhelper/server/AudioForwarder.class"
+            )
+        }
+
+        project.exec {
+            workingDir(outDir)
+            commandLine("jar", "cf", assetsJar.absolutePath, "classes.dex")
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("buildAppHelperJar")
+}
