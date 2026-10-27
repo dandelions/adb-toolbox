@@ -352,8 +352,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (!isFabMovedByUser) {
             val fabParams = binding.fabQuickMenu.layoutParams as FrameLayout.LayoutParams
             fabParams.gravity = Gravity.END or Gravity.BOTTOM
-            // 任务栏高约 56dp，精简悬浮球高 28dp，底部对齐偏移 +14dp 达到水平中心一致
-            val fabBottomMarginPx = ((bottomMarginDp + 14) * density).toInt()
+            // 靠近屏幕底部右下角（底部留出 10dp 间距防误触，侧边留出 16dp）
+            val fabBottomMarginPx = (10 * density).toInt()
             val fabEndMarginPx = (16 * density).toInt()
             fabParams.setMargins(0, 0, fabEndMarginPx, fabBottomMarginPx)
             binding.fabQuickMenu.layoutParams = fabParams
