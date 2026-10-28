@@ -177,6 +177,38 @@
             android:text="切后台纯音频播放 (Home键切桌面不中断听歌，暂停传画省电)"
             android:textColor="@color/text_primary" />
 
+        <!-- 后台静音断开超时选择 -->
+        <TextView
+            android:id="@+id/tvSilenceTimeoutTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="后台静音自动断开超时 (切后台无声音多长时间后断开)"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutSilenceTimeout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:boxStrokeColor="@color/primary"
+            app:endIconTint="@color/text_secondary"
+            app:hintEnabled="false">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/actvSilenceTimeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:inputType="none"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- 虚拟耳机静音外放开关 -->
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchMuteDevice"

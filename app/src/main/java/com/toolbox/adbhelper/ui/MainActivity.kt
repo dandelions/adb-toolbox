@@ -300,6 +300,7 @@ class MainActivity : AppCompatActivity() {
         val size = prefs.getInt("scrcpy_max_size", 1280)
         val bitrate = prefs.getInt("scrcpy_bitrate", 8_000_000)
         val fps = prefs.getInt("scrcpy_max_fps", 60)
+        val silenceTimeout = prefs.getLong("scrcpy_silence_timeout", 120_000L)
         val resStr = when (size) {
             0 -> "原画"
             1920 -> "1080P"
@@ -314,7 +315,8 @@ class MainActivity : AppCompatActivity() {
             16_000_000 -> "16M"
             else -> "${bitrate / 1_000_000}M"
         }
-        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr / ${fps}FPS"
+        val timeoutStr = ScrcpyPresets.getSilenceTimeoutShortLabel(silenceTimeout)
+        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr / ${fps}FPS · $timeoutStr"
     }
 
     private fun showScrcpyPresetDialog() {
@@ -330,11 +332,22 @@ class MainActivity : AppCompatActivity() {
         val navPosName = prefs.getString("scrcpy_nav_pos", NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         val isFullscreen = prefs.getBoolean("scrcpy_fullscreen", false)
         val turnScreenOff = prefs.getBoolean("scrcpy_screen_off", false)
+        val currentAudio = prefs.getBoolean("scrcpy_audio_forward", true)
+        val currentBgAudio = prefs.getBoolean("scrcpy_bg_audio", true)
+        val currentMuteDevice = prefs.getBoolean("scrcpy_mute_device", false)
+        val currentAudioSource = prefs.getInt("scrcpy_audio_source", 3)
+        val currentQuality = prefs.getInt("scrcpy_audio_quality", 0)
+        val currentGain = prefs.getFloat("scrcpy_audio_gain", 1.0f)
+        val currentSilenceTimeout = prefs.getLong("scrcpy_silence_timeout", 120_000L)
 
         var selectedSize = currentSize
         var selectedBitrate = currentBitrate
         var selectedFps = currentFps
         var selectedNavPos = navPosName
+        var selectedAudioSource = currentAudioSource
+        var selectedQuality = currentQuality
+        var selectedGain = currentGain
+        var selectedSilenceTimeout = currentSilenceTimeout
 
         // 1. 初始化分辨率下拉
         val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
@@ -374,8 +387,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 5. 初始化音频源下拉
-        val currentAudioSource = prefs.getInt("scrcpy_audio_source", 3)
-        var selectedAudioSource = currentAudioSource
         val audioLabels = ScrcpyPresets.AUDIO_SOURCE_OPTIONS.map { it.label }
         val audioAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, audioLabels)
         dialogBinding.actvAudioSource.setAdapter(audioAdapter)
@@ -384,11 +395,39 @@ class MainActivity : AppCompatActivity() {
             selectedAudioSource = ScrcpyPresets.AUDIO_SOURCE_OPTIONS[position].value
         }
 
-        // 6. 开关
-        val currentAudio = prefs.getBoolean("scrcpy_audio_forward", true)
+        // 6. 初始化音质品质模式下拉
+        val qualityLabels = ScrcpyPresets.AUDIO_QUALITY_OPTIONS.map { it.label }
+        val qualityAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, qualityLabels)
+        dialogBinding.actvAudioQuality.setAdapter(qualityAdapter)
+        dialogBinding.actvAudioQuality.setText(ScrcpyPresets.getAudioQualityLabel(currentQuality), false)
+        dialogBinding.actvAudioQuality.setOnItemClickListener { _, _, position, _ ->
+            selectedQuality = ScrcpyPresets.AUDIO_QUALITY_OPTIONS[position].value
+        }
+
+        // 7. 初始化远端数字音量增益下拉
+        val gainLabels = ScrcpyPresets.AUDIO_GAIN_OPTIONS.map { it.label }
+        val gainAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, gainLabels)
+        dialogBinding.actvAudioGain.setAdapter(gainAdapter)
+        dialogBinding.actvAudioGain.setText(ScrcpyPresets.getAudioGainLabel(currentGain), false)
+        dialogBinding.actvAudioGain.setOnItemClickListener { _, _, position, _ ->
+            selectedGain = ScrcpyPresets.AUDIO_GAIN_OPTIONS[position].value
+        }
+
+        // 8. 初始化后台静音断开超时下拉
+        val timeoutLabels = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS.map { it.label }
+        val timeoutAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, timeoutLabels)
+        dialogBinding.actvSilenceTimeout.setAdapter(timeoutAdapter)
+        dialogBinding.actvSilenceTimeout.setText(ScrcpyPresets.getSilenceTimeoutLabel(currentSilenceTimeout), false)
+        dialogBinding.actvSilenceTimeout.setOnItemClickListener { _, _, position, _ ->
+            selectedSilenceTimeout = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS[position].value
+        }
+
+        // 9. 开关状态
         dialogBinding.switchFullscreen.isChecked = isFullscreen
         dialogBinding.switchScreenOff.isChecked = turnScreenOff
         dialogBinding.switchAudioForward.isChecked = currentAudio
+        dialogBinding.switchBackgroundAudio.isChecked = currentBgAudio
+        dialogBinding.switchMuteDevice.isChecked = currentMuteDevice
 
         val isDeviceConnected = DeviceManager.adbClient != null
         if (isDeviceConnected) {
@@ -404,9 +443,14 @@ class MainActivity : AppCompatActivity() {
                 .putInt("scrcpy_max_fps", selectedFps)
                 .putString("scrcpy_nav_pos", selectedNavPos)
                 .putInt("scrcpy_audio_source", selectedAudioSource)
+                .putInt("scrcpy_audio_quality", selectedQuality)
+                .putFloat("scrcpy_audio_gain", selectedGain)
+                .putLong("scrcpy_silence_timeout", selectedSilenceTimeout)
                 .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
                 .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
                 .putBoolean("scrcpy_audio_forward", dialogBinding.switchAudioForward.isChecked)
+                .putBoolean("scrcpy_bg_audio", dialogBinding.switchBackgroundAudio.isChecked)
+                .putBoolean("scrcpy_mute_device", dialogBinding.switchMuteDevice.isChecked)
                 .apply()
 
             updateMirrorSubtitle()

@@ -81,7 +81,8 @@ data class ScrcpyConfig(
     var audioQualityMode: Int = 0, // 音质模式：0=高保真音乐听歌模式(大缓冲防爆音)，1=极速低延迟模式(游戏控制)
     var muteDeviceAudio: Boolean = false, // 被控机静音外放(仅传远端发声)
     var backgroundAudio: Boolean = true, // 主控机按 Home 键切后台继续播放音频(不传画面)
-    var audioGain: Float = 1.0f // 音频数字增益：1.0x 正常, 1.5x 增强, 2.0x 强力放大, 3.0x 超强放大
+    var audioGain: Float = 1.0f, // 音频数字增益：1.0x 正常, 1.5x 增强, 2.0x 强力放大, 3.0x 超强放大
+    var silenceTimeoutMs: Long = 120_000L // 后台连续无声自动断开超时(毫秒)，0 表示从不断开
 ) : Serializable
 
 data class ScrcpyOption<T>(
@@ -167,5 +168,27 @@ object ScrcpyPresets {
     fun getNavPositionLabel(position: NavPosition): String {
         return NAV_POSITION_OPTIONS.find { it.value == position }?.label
             ?: "底部停靠"
+    }
+
+    val SILENCE_TIMEOUT_OPTIONS = listOf(
+        ScrcpyOption("30 秒 (极速断开省电)", 30_000L),
+        ScrcpyOption("1 分钟 (快速断开)", 60_000L),
+        ScrcpyOption("2 分钟 (默认推荐，防切歌误断)", 120_000L),
+        ScrcpyOption("5 分钟 (适中保活时间)", 300_000L),
+        ScrcpyOption("10 分钟 (超长保活等待)", 600_000L),
+        ScrcpyOption("从不断开 (持续后台音频)", 0L)
+    )
+
+    fun getSilenceTimeoutLabel(timeoutMs: Long): String {
+        return SILENCE_TIMEOUT_OPTIONS.find { it.value == timeoutMs }?.label
+            ?: if (timeoutMs <= 0L) "从不断开" else if (timeoutMs % 60_000L == 0L) "${timeoutMs / 60_000L} 分钟" else "${timeoutMs / 1000L} 秒"
+    }
+
+    fun getSilenceTimeoutShortLabel(timeoutMs: Long): String {
+        return when {
+            timeoutMs <= 0L -> "静音不断开"
+            timeoutMs % 60_000L == 0L -> "静音${timeoutMs / 60_000L}分"
+            else -> "静音${timeoutMs / 1000L}秒"
+        }
     }
 }

@@ -91,7 +91,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_MUTE_DEVICE = "scrcpy_mute_device"
         private const val KEY_BG_AUDIO = "scrcpy_bg_audio"
         private const val KEY_AUDIO_GAIN = "scrcpy_audio_gain"
-        private const val BG_AUDIO_SILENCE_TIMEOUT_MS = 120_000L // 后台连续无声超过 2 分钟(120秒)自动断开传输
+        private const val KEY_SILENCE_TIMEOUT = "scrcpy_silence_timeout"
+        private const val DEFAULT_BG_SILENCE_TIMEOUT_MS = 120_000L // 默认后台连续无声超过 2 分钟(120秒)自动断开传输
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -206,6 +207,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         config.muteDeviceAudio = prefs.getBoolean(KEY_MUTE_DEVICE, false) // 默认不强制被控端静音
         config.backgroundAudio = prefs.getBoolean(KEY_BG_AUDIO, true) // 默认开启后台听歌
         config.audioGain = prefs.getFloat(KEY_AUDIO_GAIN, 1.0f) // 默认 1.0x 正常音量
+        config.silenceTimeoutMs = prefs.getLong(KEY_SILENCE_TIMEOUT, DEFAULT_BG_SILENCE_TIMEOUT_MS)
     }
 
     private fun saveConfig() {
@@ -222,6 +224,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .putBoolean(KEY_MUTE_DEVICE, config.muteDeviceAudio)
             .putBoolean(KEY_BG_AUDIO, config.backgroundAudio)
             .putFloat(KEY_AUDIO_GAIN, config.audioGain)
+            .putLong(KEY_SILENCE_TIMEOUT, config.silenceTimeoutMs)
             .apply()
     }
 
@@ -737,8 +740,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val isAudioPlaying = scrcpyManager?.isAudioPlaying() == true
 
         if (config.enableAudio && config.backgroundAudio && isAudioPlaying) {
-            // 用户开启了后台听歌模式：启动后台静音监控，持续无声超过 2 分钟则自动断开传输
-            Log.i("ScrcpyActivity", "已进入后台音频保活模式，持续 2 分钟无声将自动断开传输")
+            // 用户开启了后台听歌模式：启动后台静音监控
+            val timeoutDesc = if (config.silenceTimeoutMs <= 0L) "从不断开" else "${config.silenceTimeoutMs / 1000} 秒"
+            Log.i("ScrcpyActivity", "已进入后台音频保活模式，后台静音自动断开设定为: $timeoutDesc")
             startBackgroundSilenceMonitor()
         } else {
             // 未开启后台音频或音频未激活：保持原有的 60 秒超时断开保护
@@ -752,7 +756,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     /**
-     * 后台运行期间持续监控音频活动状态，一旦无声音播放持续超过 2 分钟(120秒)，立即自动断开音频传输与保活服务
+     * 后台运行期间持续监控音频活动状态，一旦无声音播放持续超过设定阈值，立即自动断开音频传输与保活服务
+     * 若用户设定为 0（从不断开），则后台持续保活不因静音自动断开
      */
     private fun startBackgroundSilenceMonitor() {
         bgSilenceMonitorJob?.cancel()
@@ -762,13 +767,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 delay(1000)
                 if (scrcpyManager?.isAudioPlaying() != true) break
 
+                // 用户配置为从不断开 (<= 0) 时，保持后台音频传输，不触发无声自动断开
+                if (config.silenceTimeoutMs <= 0L) {
+                    continue
+                }
+
                 val now = System.currentTimeMillis()
                 val lastSoundTime = scrcpyManager?.getLastSoundTime() ?: 0L
                 val baselineTime = if (lastSoundTime > 0L) lastSoundTime else bgStartTime
                 val silentDuration = now - baselineTime
 
-                if (silentDuration >= BG_AUDIO_SILENCE_TIMEOUT_MS) {
-                    Log.i("ScrcpyActivity", "后台无声音播放持续超过 2 分钟 (${silentDuration / 1000}s)，自动断开音频传输与保活服务")
+                if (silentDuration >= config.silenceTimeoutMs) {
+                    val sec = config.silenceTimeoutMs / 1000
+                    Log.i("ScrcpyActivity", "后台无声音播放持续超过 $sec 秒 (${silentDuration / 1000}s)，自动断开音频传输与保活服务")
                     wasAudioInterruptedByBgSilence = true
                     withContext(Dispatchers.Main) {
                         scrcpyManager?.stopAudioStream()
@@ -1363,7 +1374,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             selectedGain = ScrcpyPresets.AUDIO_GAIN_OPTIONS[position].value
         }
 
-        // 8. 初始化开关
+        // 8. 初始化后台静音断开超时下拉
+        var selectedSilenceTimeout = config.silenceTimeoutMs
+        val timeoutLabels = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS.map { it.label }
+        val timeoutAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, timeoutLabels)
+        dialogBinding.actvSilenceTimeout.setAdapter(timeoutAdapter)
+        dialogBinding.actvSilenceTimeout.setText(ScrcpyPresets.getSilenceTimeoutLabel(config.silenceTimeoutMs), false)
+        dialogBinding.actvSilenceTimeout.setOnItemClickListener { _, _, position, _ ->
+            selectedSilenceTimeout = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS[position].value
+        }
+
+        // 9. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
         dialogBinding.switchAudioForward.isChecked = config.enableAudio
@@ -1397,6 +1418,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             config.muteDeviceAudio = newMute
             config.backgroundAudio = dialogBinding.switchBackgroundAudio.isChecked
             config.audioGain = selectedGain
+            config.silenceTimeoutMs = selectedSilenceTimeout
 
             saveConfig()
             applyNavPosition(config.navPosition)

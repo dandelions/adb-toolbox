@@ -57,6 +57,7 @@ class ConnectActivity : AppCompatActivity() {
         private const val SCRCPY_PREFS_NAME = "scrcpy_prefs"
         private const val KEY_SCRCPY_MAX_SIZE = "scrcpy_max_size"
         private const val KEY_SCRCPY_BITRATE = "scrcpy_bitrate"
+        private const val KEY_SCRCPY_SILENCE_TIMEOUT = "scrcpy_silence_timeout"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,6 +132,7 @@ class ConnectActivity : AppCompatActivity() {
         fun updatePresetHint() {
             val size = scrcpyPrefs.getInt(KEY_SCRCPY_MAX_SIZE, 1280)
             val bitrate = scrcpyPrefs.getInt(KEY_SCRCPY_BITRATE, 4_000_000)
+            val timeout = scrcpyPrefs.getLong(KEY_SCRCPY_SILENCE_TIMEOUT, 120_000L)
             val resStr = when (size) {
                 0 -> "原画"
                 1920 -> "1080P"
@@ -139,7 +141,8 @@ class ConnectActivity : AppCompatActivity() {
                 else -> "${size}P"
             }
             val bitStr = "${bitrate / 1_000_000}M"
-            binding.tvCurrentPresetHint.text = "已预设: $resStr / $bitStr"
+            val timeoutStr = ScrcpyPresets.getSilenceTimeoutShortLabel(timeout)
+            binding.tvCurrentPresetHint.text = "已预设: $resStr / $bitStr / $timeoutStr"
         }
 
         val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
@@ -165,6 +168,19 @@ class ConnectActivity : AppCompatActivity() {
         binding.actvConnectBitrate.setOnItemClickListener { _, _, position, _ ->
             val selected = ScrcpyPresets.BITRATE_OPTIONS[position]
             scrcpyPrefs.edit().putInt(KEY_SCRCPY_BITRATE, selected.value).apply()
+            updatePresetHint()
+        }
+
+        val timeoutLabels = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS.map { it.label }
+        val timeoutAdapter = ArrayAdapter(this, R.layout.item_dropdown_menu, timeoutLabels)
+        binding.actvConnectSilenceTimeout.setAdapter(timeoutAdapter)
+
+        val currentTimeout = scrcpyPrefs.getLong(KEY_SCRCPY_SILENCE_TIMEOUT, 120_000L)
+        binding.actvConnectSilenceTimeout.setText(ScrcpyPresets.getSilenceTimeoutLabel(currentTimeout), false)
+
+        binding.actvConnectSilenceTimeout.setOnItemClickListener { _, _, position, _ ->
+            val selected = ScrcpyPresets.SILENCE_TIMEOUT_OPTIONS[position]
+            scrcpyPrefs.edit().putLong(KEY_SCRCPY_SILENCE_TIMEOUT, selected.value).apply()
             updatePresetHint()
         }
 
