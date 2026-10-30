@@ -82,7 +82,8 @@ data class ScrcpyConfig(
     var muteDeviceAudio: Boolean = false, // 被控机静音外放(仅传远端发声)
     var backgroundAudio: Boolean = true, // 主控机按 Home 键切后台继续播放音频(不传画面)
     var audioGain: Float = 1.0f, // 音频数字增益：1.0x 正常, 1.5x 增强, 2.0x 强力放大, 3.0x 超强放大
-    var silenceTimeoutMs: Long = 120_000L // 后台连续无声自动断开超时(毫秒)，0 表示从不断开
+    var silenceTimeoutMs: Long = 120_000L, // 后台连续无声自动断开超时(毫秒)，0 表示从不断开
+    var gestureGuard: Boolean = true // 全屏手势防误触 (主控机底部上滑回桌面时，拦截边缘手势防止误触对端Home/返回)
 ) : Serializable
 
 data class ScrcpyOption<T>(

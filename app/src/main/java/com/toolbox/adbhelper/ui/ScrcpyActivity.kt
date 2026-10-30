@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -77,6 +78,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var wasAudioInterruptedByBgSilence = false
     private var bgSilenceMonitorJob: Job? = null
 
+    // 全屏手势防误触（解决主控机底部上滑返回桌面误触对端按键）
+    private var isBottomGesturePending = false
+    private var isBottomGestureSwipeUp = false
+    private var bottomGestureDownRawX = 0f
+    private var bottomGestureDownRawY = 0f
+    private var bottomGestureDownCoords: Pair<Int, Int>? = null
+    private var bottomGestureDownTargetW = 0
+    private var bottomGestureDownTargetH = 0
+    private var bottomGestureDownPointerId = 0L
+    private var bottomGestureDownButtons = 1
+    private var bottomGestureDownTime = 0L
+    private var bottomGestureRunnable: Runnable? = null
+
     companion object {
         private const val PREFS_NAME = "scrcpy_prefs"
         private const val KEY_MAX_SIZE = "scrcpy_max_size"
@@ -84,6 +98,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_MAX_FPS = "scrcpy_max_fps"
         private const val KEY_NAV_POS = "scrcpy_nav_pos"
         private const val KEY_FULLSCREEN = "scrcpy_fullscreen"
+        private const val KEY_GESTURE_GUARD = "scrcpy_gesture_guard"
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
         private const val KEY_AUDIO_FORWARD = "scrcpy_audio_forward"
         private const val KEY_AUDIO_SOURCE = "scrcpy_audio_source"
@@ -200,6 +215,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             NavPosition.BOTTOM
         }
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
+        config.gestureGuard = prefs.getBoolean(KEY_GESTURE_GUARD, true)
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
         config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0) // 默认采用免安装免弹窗的系统原生内录优先
@@ -217,6 +233,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .putInt(KEY_MAX_FPS, config.maxFps)
             .putString(KEY_NAV_POS, config.navPosition.name)
             .putBoolean(KEY_FULLSCREEN, config.isFullscreen)
+            .putBoolean(KEY_GESTURE_GUARD, config.gestureGuard)
             .putBoolean(KEY_SCREEN_OFF, config.turnScreenOff)
             .putBoolean(KEY_AUDIO_FORWARD, config.enableAudio)
             .putInt(KEY_AUDIO_SOURCE, config.audioSource)
@@ -555,10 +572,53 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
             // 1. 优先通过原生 scrcpy 36 字节极速控制流注入（微秒级实时响应，带时间戳与多点触控支持，彻底解决滑动不跟手）
             if (useControl) {
+                val density = resources.displayMetrics.density
+                val insets = ViewCompat.getRootWindowInsets(v)?.getInsets(WindowInsetsCompat.Type.systemGestures())
+                val gestureBottom = insets?.bottom ?: 0
+                val bottomThresholdPx = maxOf((28 * density).toInt(), gestureBottom)
+                val screenH = resources.displayMetrics.heightPixels
+                val isNearScreenBottom = event.rawY >= (screenH - bottomThresholdPx)
+
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         val pId = event.getPointerId(0).toLong()
                         val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v, targetW, targetH) ?: return@OnTouchListener false
+
+                        // 全屏手势防误触保护：若起始于底边手势危险区，暂缓立即派发 DOWN 事件
+                        if (config.gestureGuard && isNearScreenBottom) {
+                            isBottomGesturePending = true
+                            isBottomGestureSwipeUp = false
+                            bottomGestureDownRawX = event.rawX
+                            bottomGestureDownRawY = event.rawY
+                            bottomGestureDownCoords = coords
+                            bottomGestureDownTargetW = targetW
+                            bottomGestureDownTargetH = targetH
+                            bottomGestureDownPointerId = pId
+                            bottomGestureDownButtons = if (event.buttonState == 0) 1 else event.buttonState
+                            bottomGestureDownTime = event.eventTime
+
+                            bottomGestureRunnable?.let { v.removeCallbacks(it) }
+                            bottomGestureRunnable = Runnable {
+                                if (isBottomGesturePending && !isBottomGestureSwipeUp) {
+                                    // 超过 200ms 未发生上滑且未被系统手势取消，判定为长按或正常点击，释放 DOWN 事件
+                                    val c = bottomGestureDownCoords ?: coords
+                                    manager.sendTouchEvent(
+                                        action = MotionEvent.ACTION_DOWN,
+                                        x = c.first,
+                                        y = c.second,
+                                        devW = bottomGestureDownTargetW,
+                                        devH = bottomGestureDownTargetH,
+                                        pointerId = bottomGestureDownPointerId,
+                                        buttons = bottomGestureDownButtons,
+                                        timeMs = System.currentTimeMillis()
+                                    )
+                                    isBottomGesturePending = false
+                                }
+                            }
+                            v.postDelayed(bottomGestureRunnable, 200)
+                            return@OnTouchListener true
+                        }
+
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_DOWN,
                             x = coords.first,
@@ -572,6 +632,25 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         true
                     }
                     MotionEvent.ACTION_POINTER_DOWN -> {
+                        // 多点触控按下时，若存在挂起的底边单指事件，立即释放
+                        if (isBottomGesturePending) {
+                            bottomGestureRunnable?.let { v.removeCallbacks(it) }
+                            isBottomGesturePending = false
+                            isBottomGestureSwipeUp = false
+                            bottomGestureDownCoords?.let { c ->
+                                manager.sendTouchEvent(
+                                    action = MotionEvent.ACTION_DOWN,
+                                    x = c.first,
+                                    y = c.second,
+                                    devW = bottomGestureDownTargetW,
+                                    devH = bottomGestureDownTargetH,
+                                    pointerId = bottomGestureDownPointerId,
+                                    buttons = bottomGestureDownButtons,
+                                    timeMs = bottomGestureDownTime
+                                )
+                            }
+                        }
+
                         val actionIndex = event.actionIndex
                         val pId = event.getPointerId(actionIndex).toLong()
                         val coords = getMappedDeviceCoords(event.getX(actionIndex), event.getY(actionIndex), v, targetW, targetH) ?: return@OnTouchListener false
@@ -588,6 +667,19 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
+                        if (isBottomGesturePending) {
+                            val dy = event.rawY - bottomGestureDownRawY
+                            if (dy < -10 * density) {
+                                // 判定为主控机底部上滑返回桌面/切换任务手势：完全丢弃，防止对端按键误触
+                                isBottomGestureSwipeUp = true
+                                bottomGestureRunnable?.let { v.removeCallbacks(it) }
+                                return@OnTouchListener true
+                            } else if (isBottomGestureSwipeUp) {
+                                // 处于上滑返回桌面手势阶段，继续忽略
+                                return@OnTouchListener true
+                            }
+                        }
+
                         for (i in 0 until event.pointerCount) {
                             val pId = event.getPointerId(i).toLong()
                             val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v, targetW, targetH) ?: continue
@@ -623,6 +715,43 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     MotionEvent.ACTION_UP -> {
                         val pId = event.getPointerId(0).toLong()
                         val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v, targetW, targetH) ?: return@OnTouchListener false
+
+                        if (isBottomGesturePending) {
+                            bottomGestureRunnable?.let { v.removeCallbacks(it) }
+                            val wasSwipeUp = isBottomGestureSwipeUp
+                            isBottomGesturePending = false
+                            isBottomGestureSwipeUp = false
+
+                            if (wasSwipeUp) {
+                                // 上滑返回手势，丢弃，不传给被控机
+                                return@OnTouchListener true
+                            } else {
+                                // 用户只是在底边做了一次轻触点击：补发 DOWN 与 UP 完成正常点击
+                                val downC = bottomGestureDownCoords ?: coords
+                                manager.sendTouchEvent(
+                                    action = MotionEvent.ACTION_DOWN,
+                                    x = downC.first,
+                                    y = downC.second,
+                                    devW = targetW,
+                                    devH = targetH,
+                                    pointerId = pId,
+                                    buttons = if (event.buttonState == 0) 1 else event.buttonState,
+                                    timeMs = bottomGestureDownTime
+                                )
+                                manager.sendTouchEvent(
+                                    action = MotionEvent.ACTION_UP,
+                                    x = coords.first,
+                                    y = coords.second,
+                                    devW = targetW,
+                                    devH = targetH,
+                                    pointerId = pId,
+                                    buttons = 0,
+                                    timeMs = event.eventTime
+                                )
+                                return@OnTouchListener true
+                            }
+                        }
+
                         manager.sendTouchEvent(
                             action = MotionEvent.ACTION_UP,
                             x = coords.first,
@@ -636,6 +765,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
+                        if (isBottomGesturePending) {
+                            bottomGestureRunnable?.let { v.removeCallbacks(it) }
+                            isBottomGesturePending = false
+                            isBottomGestureSwipeUp = false
+                            // 主控机系统手势拦截（切回桌面触发 CANCEL），直接吞掉，对端零误触
+                            return@OnTouchListener true
+                        }
+
                         for (i in 0 until event.pointerCount) {
                             val pId = event.getPointerId(i).toLong()
                             val coords = getMappedDeviceCoords(event.getX(i), event.getY(i), v, targetW, targetH) ?: continue
@@ -732,6 +869,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onStop() {
         super.onStop()
         isActivityStopped = true
+        bottomGestureRunnable?.let {
+            binding.flScreenContainer.removeCallbacks(it)
+            binding.surfaceView.removeCallbacks(it)
+        }
+        isBottomGesturePending = false
+        isBottomGestureSwipeUp = false
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
         bgSilenceMonitorJob?.cancel()
@@ -1386,6 +1529,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         // 9. 初始化开关
         dialogBinding.switchFullscreen.isChecked = config.isFullscreen
+        dialogBinding.switchGestureGuard.isChecked = config.gestureGuard
         dialogBinding.switchScreenOff.isChecked = config.turnScreenOff
         dialogBinding.switchAudioForward.isChecked = config.enableAudio
         dialogBinding.switchMuteDevice.isChecked = VirtualHeadsetManager.isPluggedIn || config.muteDeviceAudio
@@ -1404,6 +1548,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
             val oldFullscreen = config.isFullscreen
             config.isFullscreen = dialogBinding.switchFullscreen.isChecked
+            config.gestureGuard = dialogBinding.switchGestureGuard.isChecked
             config.turnScreenOff = dialogBinding.switchScreenOff.isChecked
 
             val oldAudio = config.enableAudio
@@ -1729,6 +1874,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onDestroy() {
         super.onDestroy()
+        bottomGestureRunnable?.let {
+            binding.flScreenContainer.removeCallbacks(it)
+            binding.surfaceView.removeCallbacks(it)
+        }
+        isBottomGesturePending = false
+        isBottomGestureSwipeUp = false
         backgroundTimeoutJob?.cancel()
         backgroundTimeoutJob = null
         reconnectJob?.cancel()

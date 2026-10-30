@@ -153,6 +153,14 @@
             android:textColor="@color/text_primary" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchGestureGuard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="全屏手势防误触 (底部上滑回桌面时，防止误触对端Home/返回)"
+            android:textColor="@color/text_primary" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchScreenOff"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

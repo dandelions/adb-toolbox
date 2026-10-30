@@ -331,6 +331,7 @@ class MainActivity : AppCompatActivity() {
         val currentFps = prefs.getInt("scrcpy_max_fps", 60)
         val navPosName = prefs.getString("scrcpy_nav_pos", NavPosition.BOTTOM.name) ?: NavPosition.BOTTOM.name
         val isFullscreen = prefs.getBoolean("scrcpy_fullscreen", false)
+        val isGestureGuard = prefs.getBoolean("scrcpy_gesture_guard", true)
         val turnScreenOff = prefs.getBoolean("scrcpy_screen_off", false)
         val currentAudio = prefs.getBoolean("scrcpy_audio_forward", true)
         val currentBgAudio = prefs.getBoolean("scrcpy_bg_audio", true)
@@ -424,6 +425,7 @@ class MainActivity : AppCompatActivity() {
 
         // 9. 开关状态
         dialogBinding.switchFullscreen.isChecked = isFullscreen
+        dialogBinding.switchGestureGuard.isChecked = isGestureGuard
         dialogBinding.switchScreenOff.isChecked = turnScreenOff
         dialogBinding.switchAudioForward.isChecked = currentAudio
         dialogBinding.switchBackgroundAudio.isChecked = currentBgAudio
@@ -447,6 +449,7 @@ class MainActivity : AppCompatActivity() {
                 .putFloat("scrcpy_audio_gain", selectedGain)
                 .putLong("scrcpy_silence_timeout", selectedSilenceTimeout)
                 .putBoolean("scrcpy_fullscreen", dialogBinding.switchFullscreen.isChecked)
+                .putBoolean("scrcpy_gesture_guard", dialogBinding.switchGestureGuard.isChecked)
                 .putBoolean("scrcpy_screen_off", dialogBinding.switchScreenOff.isChecked)
                 .putBoolean("scrcpy_audio_forward", dialogBinding.switchAudioForward.isChecked)
                 .putBoolean("scrcpy_bg_audio", dialogBinding.switchBackgroundAudio.isChecked)
