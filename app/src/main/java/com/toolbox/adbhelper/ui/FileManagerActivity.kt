@@ -15,7 +15,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.FileItem
 import com.toolbox.adbhelper.databinding.ActivityFileManagerBinding
+import com.toolbox.adbhelper.databinding.DialogDownloadProgressBinding
 import com.toolbox.adbhelper.databinding.ItemFileBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,33 +138,145 @@ class FileManagerActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun downloadFile(item: FileItem) {
-        Toast.makeText(this, "正在下载到本机下载目录...", Toast.LENGTH_SHORT).show()
+    companion object {
+        fun formatFileSize(bytes: Long): String {
+            if (bytes <= 0) return "0 B"
+            if (bytes < 1024) return "$bytes B"
+            val kb = bytes / 1024f
+            if (kb < 1024) return "%.1f KB".format(kb)
+            val mb = kb / 1024f
+            if (mb < 1024) return "%.1f MB".format(mb)
+            val gb = mb / 1024f
+            return "%.2f GB".format(gb)
+        }
+    }
 
-        lifecycleScope.launch {
+    private fun downloadFile(item: FileItem) {
+        val dialogBinding = DialogDownloadProgressBinding.inflate(layoutInflater)
+        dialogBinding.tvDownloadTitle.text = "正在下载文件"
+        dialogBinding.tvDownloadFileName.text = item.name
+
+        val totalBytes = item.size
+        if (totalBytes > 0) {
+            dialogBinding.progressBar.isIndeterminate = false
+            dialogBinding.progressBar.max = 100
+            dialogBinding.progressBar.progress = 0
+            dialogBinding.tvDownloadBytes.text = "0 B / ${formatFileSize(totalBytes)}"
+            dialogBinding.tvDownloadSpeed.text = ""
+            dialogBinding.tvDownloadPercent.text = "0%"
+        } else {
+            dialogBinding.progressBar.isIndeterminate = true
+            dialogBinding.tvDownloadBytes.text = "正在连接并准备下载..."
+            dialogBinding.tvDownloadSpeed.text = ""
+            dialogBinding.tvDownloadPercent.text = ""
+        }
+
+        var isCancelled = false
+        var isFinished = false
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .setCancelable(false)
+            .setNegativeButton("取消下载") { d, _ ->
+                isCancelled = true
+                d.dismiss()
+            }
+            .create()
+
+        dialog.show()
+
+        val downloadJob = lifecycleScope.launch {
             val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
             if (client == null) {
+                isFinished = true
+                if (!isFinishing && !isDestroyed && dialog.isShowing) {
+                    try { dialog.dismiss() } catch (_: Exception) {}
+                }
                 Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
                 return@launch
             }
+
+            var lastUpdateTime = 0L
+            var lastSpeedTime = System.currentTimeMillis()
+            var lastSpeedBytes = 0L
+            var currentSpeedText = ""
 
             try {
                 val savedLocation = withContext(Dispatchers.IO) {
                     val sync = client.openSync()
                     try {
                         com.toolbox.adbhelper.core.utils.DownloadHelper.downloadToPublicDownloads(
-                            applicationContext,
-                            sync,
-                            item.path,
-                            item.name
+                            context = applicationContext,
+                            sync = sync,
+                            remotePath = item.path,
+                            fileName = item.name,
+                            totalBytes = totalBytes,
+                            onProgress = { downloaded, total ->
+                                if (isCancelled) {
+                                    throw java.io.InterruptedIOException("用户已取消下载")
+                                }
+                                val now = System.currentTimeMillis()
+                                val timeSinceSpeed = now - lastSpeedTime
+                                if (timeSinceSpeed >= 500) {
+                                    val bytesDelta = downloaded - lastSpeedBytes
+                                    if (bytesDelta >= 0 && timeSinceSpeed > 0) {
+                                        val speedBytesPerSec = (bytesDelta * 1000L) / timeSinceSpeed
+                                        currentSpeedText = "${formatFileSize(speedBytesPerSec)}/s"
+                                    }
+                                    lastSpeedTime = now
+                                    lastSpeedBytes = downloaded
+                                }
+
+                                if (now - lastUpdateTime > 80 || (total > 0 && downloaded >= total)) {
+                                    lastUpdateTime = now
+                                    val speedStr = currentSpeedText
+                                    lifecycleScope.launch(Dispatchers.Main) {
+                                        if (!isFinishing && !isDestroyed && dialog.isShowing) {
+                                            if (total > 0) {
+                                                val progress = ((downloaded.toDouble() / total.toDouble()) * 100).toInt().coerceIn(0, 100)
+                                                dialogBinding.progressBar.isIndeterminate = false
+                                                dialogBinding.progressBar.progress = progress
+                                                dialogBinding.tvDownloadPercent.text = "$progress%"
+                                                dialogBinding.tvDownloadBytes.text = "${formatFileSize(downloaded)} / ${formatFileSize(total)}"
+                                                dialogBinding.tvDownloadSpeed.text = speedStr
+                                            } else {
+                                                dialogBinding.progressBar.isIndeterminate = true
+                                                dialogBinding.tvDownloadBytes.text = "已下载: ${formatFileSize(downloaded)}"
+                                                dialogBinding.tvDownloadSpeed.text = speedStr
+                                                dialogBinding.tvDownloadPercent.text = ""
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         )
                     } finally {
                         sync.close()
                     }
                 }
+
+                isFinished = true
+                if (!isFinishing && !isDestroyed && dialog.isShowing) {
+                    try { dialog.dismiss() } catch (_: Exception) {}
+                }
                 Toast.makeText(this@FileManagerActivity, "下载完成，已保存至本机下载目录:\n$savedLocation", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
-                Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                isFinished = true
+                if (!isFinishing && !isDestroyed && dialog.isShowing) {
+                    try { dialog.dismiss() } catch (_: Exception) {}
+                }
+                if (isCancelled || e is java.io.InterruptedIOException || e is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(this@FileManagerActivity, "下载已取消", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        dialog.setOnDismissListener {
+            if (!isFinished) {
+                isCancelled = true
+                downloadJob.cancel()
             }
         }
     }
@@ -261,7 +375,7 @@ class FileManagerActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val item = list[position]
             holder.binding.tvFileName.text = item.name
-            holder.binding.tvFileInfo.text = "${item.permissions} | ${formatSize(item.size)} | ${item.lastModified}"
+            holder.binding.tvFileInfo.text = "${item.permissions} | ${formatFileSize(item.size)} | ${item.lastModified}"
             holder.binding.ivFileIcon.setImageResource(
                 if (item.isDirectory) android.R.drawable.ic_menu_directions else android.R.drawable.ic_menu_agenda
             )
@@ -269,14 +383,5 @@ class FileManagerActivity : AppCompatActivity() {
         }
 
         override fun getItemCount(): Int = list.size
-
-        private fun formatSize(bytes: Long): String {
-            if (bytes <= 0) return "0 B"
-            if (bytes < 1024) return "$bytes B"
-            val kb = bytes / 1024f
-            if (kb < 1024) return "%.1f KB".format(kb)
-            val mb = kb / 1024f
-            return "%.1f MB".format(mb)
-        }
     }
 }

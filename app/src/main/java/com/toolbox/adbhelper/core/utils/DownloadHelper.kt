@@ -24,12 +24,14 @@ object DownloadHelper {
         context: Context,
         sync: AdbSync,
         remotePath: String,
-        fileName: String
+        fileName: String,
+        totalBytes: Long = 0L,
+        onProgress: ((downloaded: Long, total: Long) -> Unit)? = null
     ): String {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            downloadViaMediaStore(context, sync, remotePath, fileName)
+            downloadViaMediaStore(context, sync, remotePath, fileName, totalBytes, onProgress)
         } else {
-            downloadViaFile(context, sync, remotePath, fileName)
+            downloadViaFile(context, sync, remotePath, fileName, totalBytes, onProgress)
         }
     }
 
@@ -37,7 +39,9 @@ object DownloadHelper {
         context: Context,
         sync: AdbSync,
         remotePath: String,
-        fileName: String
+        fileName: String,
+        totalBytes: Long,
+        onProgress: ((downloaded: Long, total: Long) -> Unit)?
     ): String {
         val resolver = context.contentResolver
         val mimeType = getMimeType(fileName)
@@ -54,7 +58,7 @@ object DownloadHelper {
 
         try {
             resolver.openOutputStream(uri)?.use { os ->
-                sync.pullFile(remotePath, os)
+                sync.pullFile(remotePath, os, totalBytes, onProgress)
             } ?: throw IOException("无法打开目标文件的写入流")
 
             values.clear()
@@ -72,7 +76,9 @@ object DownloadHelper {
         context: Context,
         sync: AdbSync,
         remotePath: String,
-        fileName: String
+        fileName: String,
+        totalBytes: Long,
+        onProgress: ((downloaded: Long, total: Long) -> Unit)?
     ): String {
         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         if (!downloadDir.exists()) {
@@ -90,18 +96,25 @@ object DownloadHelper {
             }
         }
 
-        FileOutputStream(targetFile).use { fos ->
-            sync.pullFile(remotePath, fos)
+        try {
+            FileOutputStream(targetFile).use { fos ->
+                sync.pullFile(remotePath, fos, totalBytes, onProgress)
+            }
+
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(targetFile.absolutePath),
+                null,
+                null
+            )
+
+            return targetFile.absolutePath
+        } catch (e: Exception) {
+            if (targetFile.exists()) {
+                targetFile.delete()
+            }
+            throw e
         }
-
-        MediaScannerConnection.scanFile(
-            context,
-            arrayOf(targetFile.absolutePath),
-            null,
-            null
-        )
-
-        return targetFile.absolutePath
     }
 
     private fun getMimeType(fileName: String): String {

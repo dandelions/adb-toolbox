@@ -84,13 +84,20 @@ class AdbSync(private val stream: AdbStream) {
         }
     }
 
-    fun pullFile(remotePath: String, outputStream: OutputStream, progress: ((Float) -> Unit)? = null) {
+    fun pullFile(
+        remotePath: String,
+        outputStream: OutputStream,
+        totalBytes: Long = 0L,
+        progress: ((downloaded: Long, total: Long) -> Unit)? = null
+    ) {
         val pathBytes = remotePath.toByteArray(Charsets.UTF_8)
         val req = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
         req.put(ID_RECV)
         req.putInt(pathBytes.size)
         req.put(pathBytes)
         stream.write(req.array())
+
+        var downloadedBytes = 0L
 
         while (true) {
             val header = readExact(8)
@@ -99,6 +106,8 @@ class AdbSync(private val stream: AdbStream) {
             if (cmd == "DATA") {
                 val data = readExact(len)
                 outputStream.write(data)
+                downloadedBytes += len
+                progress?.invoke(downloadedBytes, totalBytes)
             } else if (cmd == "DONE") {
                 break
             } else {
@@ -107,11 +116,17 @@ class AdbSync(private val stream: AdbStream) {
             }
         }
         outputStream.flush()
+        progress?.invoke(downloadedBytes, if (totalBytes > 0) totalBytes else downloadedBytes)
     }
 
-    fun pullFile(remotePath: String, localFile: File, progress: ((Float) -> Unit)? = null) {
+    fun pullFile(
+        remotePath: String,
+        localFile: File,
+        totalBytes: Long = 0L,
+        progress: ((downloaded: Long, total: Long) -> Unit)? = null
+    ) {
         localFile.outputStream().use { fos ->
-            pullFile(remotePath, fos, progress)
+            pullFile(remotePath, fos, totalBytes, progress)
         }
     }
 
