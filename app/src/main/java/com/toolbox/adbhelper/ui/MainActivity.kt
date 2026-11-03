@@ -196,7 +196,13 @@ class MainActivity : AppCompatActivity() {
         binding.tvInfoScreen.text = "屏幕显示: 分辨率 ${info.resolution}, 像素密度 ${info.density}"
         val total = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageTotal)
         val free = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageFree)
-        binding.tvInfoStorage.text = "内置空间: 总空间 $total, 剩余空间 $free"
+        binding.tvInfoStorage.text = if (total != "Unknown" && free != "Unknown") {
+            "内置空间: 总空间 $total, 剩余空间 $free"
+        } else if (total != "Unknown") {
+            "内置空间: 总空间 $total"
+        } else {
+            "内置空间: 未知"
+        }
     }
 
     private fun showUtilitiesDialog() {

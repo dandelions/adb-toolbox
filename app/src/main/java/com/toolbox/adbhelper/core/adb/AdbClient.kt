@@ -101,11 +101,21 @@ class AdbClient(val connection: AdbConnection) {
 
             // 存储空间 (转换为 GB 单位)
             val dfOut = executeShell("df -k /sdcard 2>/dev/null || df /sdcard 2>/dev/null || df /data")
-            val dfLines = dfOut.lines().filter { it.isNotBlank() }
-            val dataLine = dfLines.firstOrNull { it.contains("%") } ?: dfLines.getOrNull(1)
+            val dfLines = dfOut.lines().map { it.trim() }.filter { it.isNotBlank() }
+            val dataLine = dfLines.firstOrNull { line ->
+                !line.startsWith("Filesystem", ignoreCase = true) &&
+                !line.contains("1K-blocks", ignoreCase = true) &&
+                !line.contains("1024-blocks", ignoreCase = true) &&
+                line.contains(Regex("""\d+%"""))
+            } ?: dfLines.drop(1).firstOrNull { line ->
+                !line.startsWith("Filesystem", ignoreCase = true) &&
+                !line.contains("1K-blocks", ignoreCase = true) &&
+                line.any { it.isDigit() }
+            }
+
             if (dataLine != null) {
                 val parts = dataLine.trim().split(Regex("""\s+"""))
-                val percentIndex = parts.indexOfFirst { it.endsWith("%") || it.contains("%") }
+                val percentIndex = parts.indexOfFirst { it.matches(Regex("""\d+%""")) }
                 if (percentIndex == 4 && parts.size >= 5) {
                     info.storageTotal = formatStorageToGb(parts[1])
                     info.storageFree = formatStorageToGb(parts[3])
@@ -270,27 +280,23 @@ class AdbClient(val connection: AdbConnection) {
 
             val upper = trimmed.uppercase(Locale.US)
             if (upper.endsWith("GB") || upper.endsWith("G")) {
-                val numStr = upper.removeSuffix("GB").removeSuffix("G").trim()
-                val num = numStr.toDoubleOrNull()
-                return if (num != null) String.format(Locale.US, "%.1f GB", num) else trimmed
+                val num = upper.removeSuffix("GB").removeSuffix("G").trim().toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num) else "Unknown"
             }
             if (upper.endsWith("TB") || upper.endsWith("T")) {
-                val numStr = upper.removeSuffix("TB").removeSuffix("T").trim()
-                val num = numStr.toDoubleOrNull()
-                return if (num != null) String.format(Locale.US, "%.1f GB", num * 1024.0) else trimmed
+                val num = upper.removeSuffix("TB").removeSuffix("T").trim().toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num * 1024.0) else "Unknown"
             }
             if (upper.endsWith("MB") || upper.endsWith("M")) {
-                val numStr = upper.removeSuffix("MB").removeSuffix("M").trim()
-                val num = numStr.toDoubleOrNull()
-                return if (num != null) String.format(Locale.US, "%.1f GB", num / 1024.0) else trimmed
+                val num = upper.removeSuffix("MB").removeSuffix("M").trim().toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num / 1024.0) else "Unknown"
             }
             if (upper.endsWith("KB") || upper.endsWith("K")) {
-                val numStr = upper.removeSuffix("KB").removeSuffix("K").trim()
-                val num = numStr.toDoubleOrNull()
-                return if (num != null) String.format(Locale.US, "%.1f GB", num / (1024.0 * 1024.0)) else trimmed
+                val num = upper.removeSuffix("KB").removeSuffix("K").trim().toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num / (1024.0 * 1024.0)) else "Unknown"
             }
 
-            val num = trimmed.toDoubleOrNull() ?: return trimmed
+            val num = trimmed.toDoubleOrNull() ?: return "Unknown"
             val gb = when {
                 num > 10_000_000_000.0 -> num / (1024.0 * 1024.0 * 1024.0)
                 num > 10_000.0 -> num / (1024.0 * 1024.0)
