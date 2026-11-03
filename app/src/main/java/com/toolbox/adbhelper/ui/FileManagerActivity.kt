@@ -28,8 +28,25 @@ class FileManagerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityFileManagerBinding
     private var currentPath: String = "/sdcard"
+    private val rawFilesList = mutableListOf<FileItem>()
     private val filesList = mutableListOf<FileItem>()
     private lateinit var adapter: FileAdapter
+    private var currentSortOrder: FileSortOrder = FileSortOrder.NAME_ASC
+
+    enum class FileSortOrder(val title: String, val shortLabel: String) {
+        NAME_ASC("按名称升序 (A → Z)", "名称 ↑"),
+        NAME_DESC("按名称降序 (Z → A)", "名称 ↓"),
+        SIZE_DESC("按大小降序 (由大到小)", "大小 ↓"),
+        SIZE_ASC("按大小升序 (由小到大)", "大小 ↑"),
+        TIME_DESC("按修改时间降序 (最新优先)", "时间 ↓"),
+        TIME_ASC("按修改时间升序 (最旧优先)", "时间 ↑");
+
+        companion object {
+            fun fromOrdinal(ordinal: Int): FileSortOrder {
+                return values().getOrElse(ordinal) { NAME_ASC }
+            }
+        }
+    }
 
     private val selectUploadLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -60,6 +77,12 @@ class FileManagerActivity : AppCompatActivity() {
 
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
+
+        currentSortOrder = loadSortPreference()
+        updateSortLabel()
+
+        binding.btnSortToolbar.setOnClickListener { showSortDialog() }
+        binding.btnSortPath.setOnClickListener { showSortDialog() }
 
         adapter = FileAdapter(filesList) { item ->
             if (item.isDirectory) {
@@ -95,6 +118,89 @@ class FileManagerActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadSortPreference(): FileSortOrder {
+        val prefs = getSharedPreferences("file_manager_prefs", MODE_PRIVATE)
+        val ordinal = prefs.getInt("file_sort_order", FileSortOrder.NAME_ASC.ordinal)
+        return FileSortOrder.fromOrdinal(ordinal)
+    }
+
+    private fun saveSortPreference(order: FileSortOrder) {
+        getSharedPreferences("file_manager_prefs", MODE_PRIVATE)
+            .edit()
+            .putInt("file_sort_order", order.ordinal)
+            .apply()
+    }
+
+    private fun updateSortLabel() {
+        binding.tvSortLabel.text = currentSortOrder.shortLabel
+    }
+
+    private fun parseFileDate(dateStr: String): Long {
+        if (dateStr.isBlank()) return 0L
+        val patterns = arrayOf(
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd",
+            "MMM dd HH:mm:ss yyyy",
+            "MMM dd HH:mm yyyy",
+            "MMM dd HH:mm:ss",
+            "MMM dd HH:mm",
+            "MMM dd yyyy"
+        )
+        for (pattern in patterns) {
+            try {
+                val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+                val date = sdf.parse(dateStr)
+                if (date != null) return date.time
+            } catch (_: Exception) {}
+        }
+        return 0L
+    }
+
+    private fun sortFileList(list: List<FileItem>, sortOrder: FileSortOrder): List<FileItem> {
+        val comparator = when (sortOrder) {
+            FileSortOrder.NAME_ASC -> compareBy<FileItem>({ !it.isDirectory }, { it.name.lowercase() })
+            FileSortOrder.NAME_DESC -> compareBy<FileItem>({ !it.isDirectory }).thenByDescending { it.name.lowercase() }
+            FileSortOrder.SIZE_DESC -> compareBy<FileItem>({ !it.isDirectory }).thenByDescending { it.size }.thenBy { it.name.lowercase() }
+            FileSortOrder.SIZE_ASC -> compareBy<FileItem>({ !it.isDirectory }).thenBy { it.size }.thenBy { it.name.lowercase() }
+            FileSortOrder.TIME_DESC -> compareBy<FileItem>({ !it.isDirectory })
+                .thenByDescending { parseFileDate(it.lastModified) }
+                .thenByDescending { it.lastModified }
+                .thenBy { it.name.lowercase() }
+            FileSortOrder.TIME_ASC -> compareBy<FileItem>({ !it.isDirectory })
+                .thenBy { parseFileDate(it.lastModified) }
+                .thenBy { it.lastModified }
+                .thenBy { it.name.lowercase() }
+        }
+        return list.sortedWith(comparator)
+    }
+
+    private fun applySort() {
+        val sorted = sortFileList(rawFilesList, currentSortOrder)
+        filesList.clear()
+        filesList.addAll(sorted)
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun showSortDialog() {
+        val options = FileSortOrder.values().map { it.title }.toTypedArray()
+        val currentIndex = currentSortOrder.ordinal
+        MaterialAlertDialogBuilder(this)
+            .setTitle("文件排序方式")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                val selected = FileSortOrder.fromOrdinal(which)
+                if (selected != currentSortOrder) {
+                    currentSortOrder = selected
+                    saveSortPreference(selected)
+                    updateSortLabel()
+                    applySort()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun loadDirectory(path: String) {
         currentPath = path
         binding.tvCurrentPath.text = currentPath
@@ -110,9 +216,9 @@ class FileManagerActivity : AppCompatActivity() {
 
             try {
                 val list = withContext(Dispatchers.IO) { client.listDirectory(path) }
-                filesList.clear()
-                filesList.addAll(list)
-                adapter.notifyDataSetChanged()
+                rawFilesList.clear()
+                rawFilesList.addAll(list)
+                applySort()
                 binding.swipeRefresh.isRefreshing = false
             } catch (e: Exception) {
                 binding.swipeRefresh.isRefreshing = false

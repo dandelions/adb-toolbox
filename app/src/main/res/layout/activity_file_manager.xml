@@ -13,7 +13,20 @@
         android:background="@color/surface"
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:title="文件管理"
-        app:titleTextColor="@color/text_primary" />
+        app:titleTextColor="@color/text_primary">
+
+        <ImageButton
+            android:id="@+id/btnSortToolbar"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="end"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="排序"
+            android:src="@drawable/ic_sort"
+            app:tint="@color/text_primary" />
+
+    </com.google.android.material.appbar.MaterialToolbar>
 
     <!-- 当前路径 -->
     <LinearLayout
@@ -45,6 +58,37 @@
             android:textColor="@color/text_primary"
             android:textSize="13sp"
             android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/btnSortPath"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="4dp">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_sort"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:id="@+id/tvSortLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="名称 ↑"
+                android:textColor="@color/primary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
