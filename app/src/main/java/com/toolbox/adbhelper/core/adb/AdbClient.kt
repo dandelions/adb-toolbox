@@ -6,6 +6,7 @@ import com.toolbox.adbhelper.core.model.FileItem
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 class AdbClient(val connection: AdbConnection) {
 
@@ -98,14 +99,22 @@ class AdbClient(val connection: AdbConnection) {
             info.density = densityOut.lines().firstOrNull { it.contains("density:") }
                 ?.substringAfter("density:")?.trim() ?: "Unknown"
 
-            // 存储空间
-            val dfOut = executeShell("df /sdcard")
+            // 存储空间 (转换为 GB 单位)
+            val dfOut = executeShell("df -k /sdcard 2>/dev/null || df /sdcard 2>/dev/null || df /data")
             val dfLines = dfOut.lines().filter { it.isNotBlank() }
-            if (dfLines.size >= 2) {
-                val parts = dfLines[1].split(Regex("""\s+"""))
-                if (parts.size >= 4) {
-                    info.storageTotal = parts[1]
-                    info.storageFree = parts[3]
+            val dataLine = dfLines.firstOrNull { it.contains("%") } ?: dfLines.getOrNull(1)
+            if (dataLine != null) {
+                val parts = dataLine.trim().split(Regex("""\s+"""))
+                val percentIndex = parts.indexOfFirst { it.endsWith("%") || it.contains("%") }
+                if (percentIndex == 4 && parts.size >= 5) {
+                    info.storageTotal = formatStorageToGb(parts[1])
+                    info.storageFree = formatStorageToGb(parts[3])
+                } else if (percentIndex == 3 && parts.size >= 4) {
+                    info.storageTotal = formatStorageToGb(parts[0])
+                    info.storageFree = formatStorageToGb(parts[2])
+                } else if (parts.size >= 4) {
+                    info.storageTotal = formatStorageToGb(parts[1])
+                    info.storageFree = formatStorageToGb(parts[3])
                 }
             }
 
@@ -250,5 +259,45 @@ class AdbClient(val connection: AdbConnection) {
 
     fun close() {
         connection.close()
+    }
+
+    companion object {
+        fun formatStorageToGb(raw: String): String {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty() || trimmed.equals("unknown", ignoreCase = true)) {
+                return "Unknown"
+            }
+
+            val upper = trimmed.uppercase(Locale.US)
+            if (upper.endsWith("GB") || upper.endsWith("G")) {
+                val numStr = upper.removeSuffix("GB").removeSuffix("G").trim()
+                val num = numStr.toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num) else trimmed
+            }
+            if (upper.endsWith("TB") || upper.endsWith("T")) {
+                val numStr = upper.removeSuffix("TB").removeSuffix("T").trim()
+                val num = numStr.toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num * 1024.0) else trimmed
+            }
+            if (upper.endsWith("MB") || upper.endsWith("M")) {
+                val numStr = upper.removeSuffix("MB").removeSuffix("M").trim()
+                val num = numStr.toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num / 1024.0) else trimmed
+            }
+            if (upper.endsWith("KB") || upper.endsWith("K")) {
+                val numStr = upper.removeSuffix("KB").removeSuffix("K").trim()
+                val num = numStr.toDoubleOrNull()
+                return if (num != null) String.format(Locale.US, "%.1f GB", num / (1024.0 * 1024.0)) else trimmed
+            }
+
+            val num = trimmed.toDoubleOrNull() ?: return trimmed
+            val gb = when {
+                num > 10_000_000_000.0 -> num / (1024.0 * 1024.0 * 1024.0)
+                num > 10_000.0 -> num / (1024.0 * 1024.0)
+                num > 1000.0 -> num / 1024.0
+                else -> num
+            }
+            return String.format(Locale.US, "%.1f GB", gb)
+        }
     }
 }

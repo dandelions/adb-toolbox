@@ -45,7 +45,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshDeviceState()
-        updateMirrorSubtitle()
 
         if (!DeviceManager.isConnected && !DeviceManager.isExplicitDisconnect) {
             DeviceManager.loadLastDevice(this)
@@ -54,7 +53,6 @@ class MainActivity : AppCompatActivity() {
                     val success = DeviceManager.tryReconnect(this@MainActivity)
                     if (success && isActive) {
                         refreshDeviceState()
-                        updateMirrorSubtitle()
                     }
                 }
             }
@@ -196,7 +194,9 @@ class MainActivity : AppCompatActivity() {
         binding.tvInfoAndroid.text = "机型系统: ${info.brand} ${info.model} (Android ${info.androidVersion}, SDK ${info.sdkVersion})"
         binding.tvInfoBattery.text = "电池状态: 电量 ${info.batteryLevel}%, 温度 ${info.batteryTemp}°C, 状态: ${info.batteryStatus}"
         binding.tvInfoScreen.text = "屏幕显示: 分辨率 ${info.resolution}, 像素密度 ${info.density}"
-        binding.tvInfoStorage.text = "内置存储: 总空间 ${info.storageTotal}, 剩余空间 ${info.storageFree}"
+        val total = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageTotal)
+        val free = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageFree)
+        binding.tvInfoStorage.text = "内置空间: 总空间 $total, 剩余空间 $free"
     }
 
     private fun showUtilitiesDialog() {
@@ -293,30 +293,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    private fun updateMirrorSubtitle() {
-        val prefs = getSharedPreferences("scrcpy_prefs", Context.MODE_PRIVATE)
-        val size = prefs.getInt("scrcpy_max_size", 1280)
-        val bitrate = prefs.getInt("scrcpy_bitrate", 8_000_000)
-        val fps = prefs.getInt("scrcpy_max_fps", 60)
-        val silenceTimeout = prefs.getLong("scrcpy_silence_timeout", 120_000L)
-        val resStr = when (size) {
-            0 -> "原画"
-            1920 -> "1080P"
-            1280 -> "720P"
-            854 -> "480P"
-            else -> "${size}P"
-        }
-        val bitStr = when (bitrate) {
-            2_000_000 -> "2M"
-            4_000_000 -> "4M"
-            8_000_000 -> "8M"
-            16_000_000 -> "16M"
-            else -> "${bitrate / 1_000_000}M"
-        }
-        val timeoutStr = ScrcpyPresets.getSilenceTimeoutShortLabel(silenceTimeout)
-        binding.tvMirrorSubtitle.text = "预设: $resStr / $bitStr / ${fps}FPS · $timeoutStr"
     }
 
     private fun showScrcpyPresetDialog() {
@@ -456,7 +432,6 @@ class MainActivity : AppCompatActivity() {
                 .putBoolean("scrcpy_mute_device", dialogBinding.switchMuteDevice.isChecked)
                 .apply()
 
-            updateMirrorSubtitle()
             dialog.dismiss()
 
             if (isDeviceConnected) {

@@ -179,6 +179,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
@@ -212,6 +213,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
@@ -245,6 +247,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
@@ -273,15 +276,6 @@
                                 android:textColor="@color/text_primary"
                                 android:textSize="14sp"
                                 android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvMirrorSubtitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="预设: 720P / 4M"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="11sp" />
                         </LinearLayout>
 
                         <ImageView
@@ -304,6 +298,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
@@ -337,6 +332,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
@@ -370,6 +366,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_columnWeight="1"
+                    android:layout_gravity="fill"
                     android:layout_margin="4dp"
                     app:cardCornerRadius="12dp">
 
