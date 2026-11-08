@@ -111,26 +111,29 @@ class ScrcpyManager(
     fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing
 
     /**
-     * Android 14 锁屏时，先用 scrcpy 的标准唤醒报文触发 Keyguard 响应。
-     * KEYCODE_WAKEUP 只负责点亮屏幕，不会绕过 PIN/图案密码。
+     * Wake Android 14 securely without asking the legacy scrcpy server to handle Keyguard.
+     * KEYCODE_WAKEUP only turns the display on and never bypasses a PIN or pattern password.
      */
     suspend fun wakeLockScreen() = withContext(Dispatchers.IO) {
-        refreshSecureKeyguardState()
-        val stream = controlStream
-        if (stream != null && !stream.isClosed()) {
-            try {
-                controlQueue.offer(byteArrayOf(4.toByte())) // TYPE_BACK_OR_SCREEN_ON, action=0: screen on
-                Log.i(TAG, "Sent scrcpy lock-screen wake event")
-                return@withContext
-            } catch (e: Exception) {
-                Log.w(TAG, "Scrcpy lock-screen wake event failed: ${e.message}")
+        try {
+            // This path is accepted by Android 14 even when the old scrcpy server cannot
+            // invoke its hidden power/input APIs.
+            adbClient.executeShell("input keyevent 224")
+            Log.i(TAG, "Woke lock screen through ADB input")
+        } catch (e: Exception) {
+            Log.w(TAG, "ADB lock-screen wake failed: ${e.message}")
+            val stream = controlStream
+            if (stream != null && !stream.isClosed()) {
+                try {
+                    // scrcpy 1.18 TYPE_BACK_OR_SCREEN_ON payload: ACTION_DOWN + ACTION_UP.
+                    controlQueue.offer(byteArrayOf(4.toByte(), 0.toByte()))
+                    controlQueue.offer(byteArrayOf(4.toByte(), 1.toByte()))
+                } catch (fallbackError: Exception) {
+                    Log.w(TAG, "Scrcpy lock-screen wake fallback failed: ${fallbackError.message}")
+                }
             }
         }
-        try {
-            adbClient.executeShell("input keyevent 224")
-        } catch (e: Exception) {
-            Log.w(TAG, "ADB lock-screen wake fallback failed: ${e.message}")
-        }
+        refreshSecureKeyguardState()
     }
 
     @Volatile
@@ -1259,29 +1262,25 @@ class ScrcpyManager(
      * 被控端物理熄屏（底层切断屏幕硬件供电，但系统不休眠，视频流与后台交互持续正常输出，绝不黑屏）
      */
     suspend fun turnScreenOff() = withContext(Dispatchers.IO) {
-        var powerModeSet = false
-        // 必须保持设备唤醒，避免 Android 14 进入真正休眠后停止视频和控制通道。
+        // Keep the device awake so Android 14 does not suspend video and input streams.
         try {
             adbClient.executeShell("svc power stayon true")
-            powerModeSet = setDisplayPowerMode(0)
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to set display power mode: ${e.message}")
+            Log.w(TAG, "Unable to keep device awake: ${e.message}")
         }
 
-        if (powerModeSet) {
-            return@withContext
-        }
-
-        // scrcpy 控制通道不可用时，使用亮度备选方案；不发送电源键，避免终止投屏。
+        // Android 14 may reject the legacy scrcpy SurfaceControl call without reporting an ack.
         try {
-            val currentBrightness = adbClient.executeShell("settings get system screen_brightness").trim().toIntOrNull()
+            val currentBrightness = adbClient.executeShell("settings get system screen_brightness")
+                .trim().toIntOrNull()
             if (currentBrightness != null && currentBrightness > 0) {
                 brightnessBeforeScreenOff = currentBrightness
             }
             adbClient.executeShell("settings put system screen_brightness 0")
-            Log.i(TAG, "Turned screen off via brightness fallback")
+            setDisplayPowerMode(0)
+            Log.i(TAG, "Screen dimmed while keeping the device awake")
         } catch (e: Exception) {
-            Log.w(TAG, "Fallback turnScreenOff failed: ${e.message}")
+            Log.w(TAG, "Failed to turn screen off: ${e.message}")
         }
     }
 
@@ -1289,18 +1288,16 @@ class ScrcpyManager(
      * 被控端点亮物理屏幕并尝试唤醒解锁
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
-        val powerModeSet = setDisplayPowerMode(2)
-        if (!powerModeSet) {
-            try {
-                val brightness = brightnessBeforeScreenOff ?: 128
-                adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
-                brightnessBeforeScreenOff = null
-            } catch (e: Exception) {
-                Log.w(TAG, "Unable to restore screen brightness: ${e.message}")
-            }
+        try {
+            setDisplayPowerMode(2)
+            val brightness = brightnessBeforeScreenOff ?: 128
+            adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
+            brightnessBeforeScreenOff = null
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to restore screen brightness: ${e.message}")
         }
 
-        // 亮屏只负责唤醒，不绕过 PIN/图案密码。
+        // Wake only; never bypass a PIN or pattern password.
         wakeLockScreen()
     }
 
