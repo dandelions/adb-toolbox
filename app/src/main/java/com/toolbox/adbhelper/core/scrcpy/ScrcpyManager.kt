@@ -75,6 +75,8 @@ class ScrcpyManager(
     private var physicalDisplayWidth: Int = 0
     @Volatile
     private var physicalDisplayHeight: Int = 0
+    @Volatile
+    private var brightnessBeforeScreenOff: Int? = null
 
     /**
      * 动态更新 MediaCodec 的输出 Surface (API 23+)
@@ -1119,6 +1121,20 @@ class ScrcpyManager(
         }
     }
 
+    private fun setDisplayPowerMode(mode: Int): Boolean {
+        val stream = controlStream
+        if (stream == null || stream.isClosed()) return false
+        return try {
+            // scrcpy 1.18: TYPE_SET_SCREEN_POWER_MODE (10), POWER_MODE_OFF=0, NORMAL=2
+            controlQueue.offer(byteArrayOf(10.toByte(), mode.toByte()))
+            Log.i(TAG, "Queued scrcpy display power mode: $mode")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Queue display power mode failed: ${e.message}")
+            false
+        }
+    }
+
     private fun sendTouchThroughShell(action: Int, x: Int, y: Int, devW: Int, devH: Int) {
         val physicalW = physicalDisplayWidth.takeIf { it > 0 } ?: devW
         val physicalH = physicalDisplayHeight.takeIf { it > 0 } ?: devH
@@ -1256,29 +1272,29 @@ class ScrcpyManager(
      * 被控端物理熄屏（底层切断屏幕硬件供电，但系统不休眠，视频流与后台交互持续正常输出，绝不黑屏）
      */
     suspend fun turnScreenOff() = withContext(Dispatchers.IO) {
-        var success = false
-        // 1. 优先通过官方 scrcpy 控制通道发送 TYPE_SET_SCREEN_POWER_MODE = 10, mode = 0 (POWER_MODE_OFF)
+        var powerModeSet = false
+        // 必须保持设备唤醒，避免 Android 14 进入真正休眠后停止视频和控制通道。
         try {
-            val stream = controlStream
-            if (stream != null) {
-                stream.outputStream.write(byteArrayOf(10.toByte(), 0.toByte()))
-                stream.outputStream.flush()
-                success = true
-                Log.i(TAG, "Turned screen off via scrcpy control stream (SurfaceControl.POWER_MODE_OFF)")
-            }
+            adbClient.executeShell("svc power stayon true")
+            powerModeSet = setDisplayPowerMode(0)
         } catch (e: Exception) {
-            Log.w(TAG, "Turn screen off via control stream failed: ${e.message}")
+            Log.w(TAG, "Unable to set display power mode: ${e.message}")
         }
 
-        if (!success) {
-            // 2. 降级兜底：严禁调用 input keyevent 26（电源键休眠会导致投屏画面全黑）
-            // 降级为将背光亮度调至 0 并保持唤醒
-            try {
-                adbClient.executeShell("svc power stayon true")
-                adbClient.executeShell("settings put system screen_brightness 0")
-            } catch (e: Exception) {
-                Log.w(TAG, "Fallback turnScreenOff failed: ${e.message}")
+        if (powerModeSet) {
+            return@withContext
+        }
+
+        // scrcpy 控制通道不可用时，使用亮度备选方案；不发送电源键，避免终止投屏。
+        try {
+            val currentBrightness = adbClient.executeShell("settings get system screen_brightness").trim().toIntOrNull()
+            if (currentBrightness != null && currentBrightness > 0) {
+                brightnessBeforeScreenOff = currentBrightness
             }
+            adbClient.executeShell("settings put system screen_brightness 0")
+            Log.i(TAG, "Turned screen off via brightness fallback")
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback turnScreenOff failed: ${e.message}")
         }
     }
 
@@ -1286,25 +1302,19 @@ class ScrcpyManager(
      * 被控端点亮物理屏幕并尝试唤醒解锁
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
-        // 1. 优先通过官方 scrcpy 控制通道恢复屏幕供电：TYPE_SET_SCREEN_POWER_MODE = 10, mode = 2 (POWER_MODE_NORMAL)
-        try {
-            val stream = controlStream
-            if (stream != null) {
-                stream.outputStream.write(byteArrayOf(10.toByte(), 2.toByte()))
-                stream.outputStream.flush()
-                Log.i(TAG, "Turned screen on via scrcpy control stream (SurfaceControl.POWER_MODE_NORMAL)")
+        val powerModeSet = setDisplayPowerMode(2)
+        if (!powerModeSet) {
+            try {
+                val brightness = brightnessBeforeScreenOff ?: 128
+                adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
+                brightnessBeforeScreenOff = null
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to restore screen brightness: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Turn screen on via control stream failed: ${e.message}")
         }
 
-        // 2. 恢复系统亮度并唤醒锁屏；有 PIN/图案密码时保留系统密码验证流程
-        try {
-            adbClient.executeShell("settings put system screen_brightness 128")
-            wakeLockScreen()
-        } catch (e: Exception) {
-            Log.w(TAG, "turnScreenOn fallback failed: ${e.message}")
-        }
+        // 亮屏只负责唤醒，不绕过 PIN/图案密码。
+        wakeLockScreen()
     }
 
     /**
