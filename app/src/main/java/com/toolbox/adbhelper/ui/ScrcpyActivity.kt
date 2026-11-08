@@ -187,7 +187,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun initDeviceResolutionAndStart() {
         val manager = scrcpyManager ?: return
         lifecycleScope.launch(Dispatchers.IO) {
-            // 主动唤醒屏幕并解锁无密码锁屏，防止对端黑屏/息屏导致捕获全黑
+            // 主动唤醒屏幕；有 PIN/图案密码时保留系统锁屏，等待用户输入
             manager.turnScreenOn()
 
             val (w, h) = manager.getDeviceResolution()

@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -42,6 +43,20 @@ class ScrcpyManager(
     private var adbStream: AdbStream? = null
     private var controlStream: AdbStream? = null
     private val controlQueue = LinkedBlockingQueue<ByteArray>()
+    private val shellInputExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ScrcpyShellInput").apply { isDaemon = true }
+    }
+    @Volatile
+    private var isSecureKeyguardShowing: Boolean = false
+    @Volatile
+    private var lastKeyguardCheckMs: Long = 0L
+    private val keyguardQueryInFlight = AtomicBoolean(false)
+    @Volatile
+    private var shellDownX: Int = 0
+    @Volatile
+    private var shellDownY: Int = 0
+    @Volatile
+    private var shellDownTimeMs: Long = 0L
     @Volatile
     private var controlThread: Thread? = null
     @Volatile
@@ -56,6 +71,10 @@ class ScrcpyManager(
     @Volatile
     private var isSurfaceReady = false
     private var currentSurface: Surface? = null
+    @Volatile
+    private var physicalDisplayWidth: Int = 0
+    @Volatile
+    private var physicalDisplayHeight: Int = 0
 
     /**
      * 动态更新 MediaCodec 的输出 Surface (API 23+)
@@ -87,6 +106,29 @@ class ScrcpyManager(
     }
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
+
+    /**
+     * Android 14 锁屏时，先用 scrcpy 的标准唤醒报文触发 Keyguard 响应。
+     * KEYCODE_WAKEUP 只负责点亮屏幕，不会绕过 PIN/图案密码。
+     */
+    suspend fun wakeLockScreen() = withContext(Dispatchers.IO) {
+        refreshSecureKeyguardState(force = true)
+        val stream = controlStream
+        if (stream != null && !stream.isClosed()) {
+            try {
+                controlQueue.offer(byteArrayOf(4.toByte())) // TYPE_BACK_OR_SCREEN_ON, action=0: screen on
+                Log.i(TAG, "Sent scrcpy lock-screen wake event")
+                return@withContext
+            } catch (e: Exception) {
+                Log.w(TAG, "Scrcpy lock-screen wake event failed: ${e.message}")
+            }
+        }
+        try {
+            adbClient.executeShell("input keyevent 224")
+        } catch (e: Exception) {
+            Log.w(TAG, "ADB lock-screen wake fallback failed: ${e.message}")
+        }
+    }
 
     @Volatile
     var serverVideoWidth: Int = 0
@@ -140,23 +182,31 @@ class ScrcpyManager(
             if (overrideMatch != null) {
                 val w = overrideMatch.groupValues[1].toInt()
                 val h = overrideMatch.groupValues[2].toInt()
+                physicalDisplayWidth = w
+                physicalDisplayHeight = h
                 return@withContext Pair(w, h)
             }
             val physicalMatch = Regex("""Physical size:\s*(\d+)x(\d+)""").find(out)
             if (physicalMatch != null) {
                 val w = physicalMatch.groupValues[1].toInt()
                 val h = physicalMatch.groupValues[2].toInt()
+                physicalDisplayWidth = w
+                physicalDisplayHeight = h
                 return@withContext Pair(w, h)
             }
             val match = Regex("""(\d+)x(\d+)""").find(out)
             if (match != null) {
                 val w = match.groupValues[1].toInt()
                 val h = match.groupValues[2].toInt()
+                physicalDisplayWidth = w
+                physicalDisplayHeight = h
                 return@withContext Pair(w, h)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get wm size", e)
         }
+        physicalDisplayWidth = 1080
+        physicalDisplayHeight = 2400
         Pair(1080, 2400)
     }
 
@@ -1016,6 +1066,94 @@ class ScrcpyManager(
         controlQueue.clear()
     }
 
+    private fun readSecureKeyguardState(): Boolean {
+        return try {
+            val output = adbClient.executeShell(
+                "dumpsys window policy 2>/dev/null | grep -E 'showing=|secure=|mIsShowing'"
+            )
+            val showing = Regex("""(?m)^\s*showing=true\s*$""").containsMatchIn(output) ||
+                Regex("""(?m)^\s*mIsShowing=true\s*$""").containsMatchIn(output)
+            val secure = Regex("""(?m)^\s*secure=true\s*$""").containsMatchIn(output)
+            showing && secure
+        } catch (e: Exception) {
+            Log.d(TAG, "Unable to query secure keyguard state: ${e.message}")
+            isSecureKeyguardShowing
+        }
+    }
+
+    private fun refreshSecureKeyguardState(force: Boolean = false): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (!force && now - lastKeyguardCheckMs < 250L) {
+            return isSecureKeyguardShowing
+        }
+        if (!keyguardQueryInFlight.compareAndSet(false, true)) {
+            return isSecureKeyguardShowing
+        }
+        lastKeyguardCheckMs = now
+        if (force) {
+            return try {
+                isSecureKeyguardShowing = readSecureKeyguardState()
+                isSecureKeyguardShowing
+            } finally {
+                keyguardQueryInFlight.set(false)
+            }
+        }
+
+        shellInputExecutor.execute {
+            try {
+                isSecureKeyguardShowing = readSecureKeyguardState()
+            } finally {
+                keyguardQueryInFlight.set(false)
+            }
+        }
+        return isSecureKeyguardShowing
+    }
+
+    private fun enqueueShellInput(command: String) {
+        shellInputExecutor.execute {
+            try {
+                adbClient.executeShell(command, 3000)
+            } catch (e: Exception) {
+                Log.w(TAG, "Shell input failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun sendTouchThroughShell(action: Int, x: Int, y: Int, devW: Int, devH: Int) {
+        val physicalW = physicalDisplayWidth.takeIf { it > 0 } ?: devW
+        val physicalH = physicalDisplayHeight.takeIf { it > 0 } ?: devH
+        val safeX = if (devW > 0 && devW != physicalW) {
+            ((x.toFloat() / devW) * physicalW).toInt()
+        } else {
+            x
+        }.coerceIn(0, (physicalW - 1).coerceAtLeast(0))
+        val safeY = if (devH > 0 && devH != physicalH) {
+            ((y.toFloat() / devH) * physicalH).toInt()
+        } else {
+            y
+        }.coerceIn(0, (physicalH - 1).coerceAtLeast(0))
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                shellDownX = safeX
+                shellDownY = safeY
+                shellDownTimeMs = SystemClock.uptimeMillis()
+            }
+            MotionEvent.ACTION_UP -> {
+                val duration = (SystemClock.uptimeMillis() - shellDownTimeMs).coerceIn(40L, 800L)
+                val distance = kotlin.math.hypot(
+                    (safeX - shellDownX).toDouble(),
+                    (safeY - shellDownY).toDouble()
+                )
+                if (distance < 24.0) {
+                    enqueueShellInput("input tap $safeX $safeY")
+                } else {
+                    enqueueShellInput("input swipe $shellDownX $shellDownY $safeX $safeY $duration")
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> Unit
+        }
+    }
+
     /**
      * 微秒级无延迟注入原生触控事件 (ACTION_DOWN, ACTION_MOVE, ACTION_UP, ACTION_CANCEL, ACTION_POINTER_DOWN, ACTION_POINTER_UP)
      * scrcpy-server 1.18 自定义版 INJECT_MY_TOUCH_EVENT 标准报文: 36 字节
@@ -1031,6 +1169,12 @@ class ScrcpyManager(
         buttons: Int = 1,
         timeMs: Long = SystemClock.uptimeMillis()
     ) {
+        val secureKeyguard = refreshSecureKeyguardState()
+        if (secureKeyguard) {
+            sendTouchThroughShell(action, x, y, devW, devH)
+            return
+        }
+
         val stream = controlStream
         if (stream == null || stream.isClosed()) return
 
@@ -1154,11 +1298,10 @@ class ScrcpyManager(
             Log.w(TAG, "Turn screen on via control stream failed: ${e.message}")
         }
 
-        // 2. 恢复系统亮度并发送亮屏解锁指令
+        // 2. 恢复系统亮度并唤醒锁屏；有 PIN/图案密码时保留系统密码验证流程
         try {
             adbClient.executeShell("settings put system screen_brightness 128")
-            adbClient.executeShell("input keyevent 224") // KEYCODE_WAKEUP
-            adbClient.executeShell("wm dismiss-keyguard") // 解锁无密码锁屏
+            wakeLockScreen()
         } catch (e: Exception) {
             Log.w(TAG, "turnScreenOn fallback failed: ${e.message}")
         }
