@@ -50,7 +50,6 @@ class ScrcpyManager(
     private var isSecureKeyguardShowing: Boolean = false
     @Volatile
     private var lastKeyguardCheckMs: Long = 0L
-    private val keyguardQueryInFlight = AtomicBoolean(false)
     @Volatile
     private var shellDownX: Int = 0
     @Volatile
@@ -109,12 +108,14 @@ class ScrcpyManager(
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
+    fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing
+
     /**
      * Android 14 锁屏时，先用 scrcpy 的标准唤醒报文触发 Keyguard 响应。
      * KEYCODE_WAKEUP 只负责点亮屏幕，不会绕过 PIN/图案密码。
      */
     suspend fun wakeLockScreen() = withContext(Dispatchers.IO) {
-        refreshSecureKeyguardState(force = true)
+        refreshSecureKeyguardState()
         val stream = controlStream
         if (stream != null && !stream.isClosed()) {
             try {
@@ -1083,31 +1084,9 @@ class ScrcpyManager(
         }
     }
 
-    private fun refreshSecureKeyguardState(force: Boolean = false): Boolean {
-        val now = SystemClock.uptimeMillis()
-        if (!force && now - lastKeyguardCheckMs < 250L) {
-            return isSecureKeyguardShowing
-        }
-        if (!keyguardQueryInFlight.compareAndSet(false, true)) {
-            return isSecureKeyguardShowing
-        }
-        lastKeyguardCheckMs = now
-        if (force) {
-            return try {
-                isSecureKeyguardShowing = readSecureKeyguardState()
-                isSecureKeyguardShowing
-            } finally {
-                keyguardQueryInFlight.set(false)
-            }
-        }
-
-        shellInputExecutor.execute {
-            try {
-                isSecureKeyguardShowing = readSecureKeyguardState()
-            } finally {
-                keyguardQueryInFlight.set(false)
-            }
-        }
+    private fun refreshSecureKeyguardState(): Boolean {
+        isSecureKeyguardShowing = readSecureKeyguardState()
+        lastKeyguardCheckMs = SystemClock.uptimeMillis()
         return isSecureKeyguardShowing
     }
 
@@ -1119,6 +1098,10 @@ class ScrcpyManager(
                 Log.w(TAG, "Shell input failed: ${e.message}")
             }
         }
+    }
+
+    suspend fun syncLockScreenState() = withContext(Dispatchers.IO) {
+        refreshSecureKeyguardState()
     }
 
     private fun setDisplayPowerMode(mode: Int): Boolean {
@@ -1185,9 +1168,13 @@ class ScrcpyManager(
         buttons: Int = 1,
         timeMs: Long = SystemClock.uptimeMillis()
     ) {
-        val secureKeyguard = refreshSecureKeyguardState()
-        if (secureKeyguard) {
+        if (isSecureKeyguardShowing) {
             sendTouchThroughShell(action, x, y, devW, devH)
+            if (action == MotionEvent.ACTION_UP) {
+                shellInputExecutor.execute {
+                    isSecureKeyguardShowing = readSecureKeyguardState()
+                }
+            }
             return
         }
 

@@ -189,6 +189,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         lifecycleScope.launch(Dispatchers.IO) {
             // 主动唤醒屏幕；有 PIN/图案密码时保留系统锁屏，等待用户输入
             manager.turnScreenOn()
+            manager.syncLockScreenState()
 
             val (w, h) = manager.getDeviceResolution()
             physicalWidth = w
@@ -555,6 +556,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val manager = scrcpyManager ?: return@OnTouchListener false
             val (curDevW, curDevH) = getCurrentDeviceDimensions()
             val useControl = manager.hasControl()
+            val secureLockScreen = manager.isSecureLockScreenShowing()
 
             // 极为关键：若是 scrcpy 原生控制流，目标坐标系与尺寸必须是服务端的真实视频编码尺寸 (serverVideoWidth x serverVideoHeight)
             // 绝不能传物理分辨率，否则服务端 Device.getPhysicalPoint 会因为 Size 不匹配直接抛出 Ignore touch event 并丢弃！
@@ -585,7 +587,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         val coords = getMappedDeviceCoords(event.getX(0), event.getY(0), v, targetW, targetH) ?: return@OnTouchListener false
 
                         // 全屏手势防误触保护：若起始于底边手势危险区，暂缓立即派发 DOWN 事件
-                        if (config.gestureGuard && isNearScreenBottom) {
+                        if (config.gestureGuard && !secureLockScreen && isNearScreenBottom) {
                             isBottomGesturePending = true
                             isBottomGestureSwipeUp = false
                             bottomGestureDownRawX = event.rawX
