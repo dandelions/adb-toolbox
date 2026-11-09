@@ -8,6 +8,17 @@
     android:padding="20dp">
 
     <TextView
+        android:id="@+id/btnBlindBack"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:paddingBottom="10dp"
+        android:paddingEnd="16dp"
+        android:text="← 返回投屏"
+        android:textColor="#80CBC4"
+        android:textSize="15sp" />
+
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="盲输入锁屏密码"

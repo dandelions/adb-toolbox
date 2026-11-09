@@ -65,6 +65,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private var isScreenOff = false
     private var blindUnlockShown = false
+    private var blindUnlockDismissed = false
     private var lockGuardSuppressedUntil = 0L
     private var lockBannerJob: Job? = null
 
@@ -72,15 +73,27 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            // 解锁成功：暂缓再次弹页，等待锁屏状态刷新后正常投屏
+            // 解锁成功：重建投屏会话，避免锁屏期间建立的采集一直输出黑帧
             lockGuardSuppressedUntil = android.os.SystemClock.uptimeMillis() + 15_000L
             blindUnlockShown = false
+            blindUnlockDismissed = false
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     scrcpyManager?.syncLockScreenState()
                 } catch (_: Exception) {}
-                withContext(Dispatchers.Main) { checkAndResumeStream() }
             }
+            lifecycleScope.launch {
+                delay(600)
+                stopStreaming()
+                delay(300)
+                if (isActivityResumed && !isActivityStopped) {
+                    if (userSelectedFallback) startFallbackImageStream() else startStreaming()
+                }
+            }
+        } else {
+            // 用户主动关闭密码页：不再自动弹回，等待手动打开或设备解锁
+            blindUnlockDismissed = true
+            blindUnlockShown = true
         }
     }
     private var surfaceCreated = false
@@ -876,11 +889,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun maybeOpenBlindUnlock() {
         val manager = scrcpyManager ?: return
         if (!isActivityResumed || isActivityStopped) return
-        if (!isLockGuardActive()) return
         if (!manager.isSecureLockScreenShowing()) {
             blindUnlockShown = false
+            blindUnlockDismissed = false
             return
         }
+        if (blindUnlockDismissed) return
+        if (!isLockGuardActive()) return
         if (blindUnlockShown) return
         blindUnlockShown = true
         showBlindUnlockDialog()
@@ -1056,7 +1071,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         // 需要密码时不建立投屏，先只显示盲输界面
-        if (isLockGuardActive() && scrcpyManager?.isSecureLockScreenShowing() == true) {
+        if (!blindUnlockDismissed && isLockGuardActive() &&
+            scrcpyManager?.isSecureLockScreenShowing() == true
+        ) {
             blindUnlockShown = true
             showBlindUnlockDialog()
             return

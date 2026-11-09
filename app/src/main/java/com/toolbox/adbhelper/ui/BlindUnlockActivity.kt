@@ -68,6 +68,7 @@ class BlindUnlockActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnBlindSend).setOnClickListener { sendPin(submit = true) }
         findViewById<Button>(R.id.btnBlindClose).setOnClickListener { finish() }
+        findViewById<android.widget.TextView>(R.id.btnBlindBack).setOnClickListener { finish() }
 
         renderPin()
         updateTargetHint()
