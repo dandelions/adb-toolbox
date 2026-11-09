@@ -336,9 +336,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 isScreenOff = false
                 Toast.makeText(this@ScrcpyActivity, "已唤醒被控端屏幕", Toast.LENGTH_SHORT).show()
             } else {
-                manager.turnScreenOff()
-                isScreenOff = true
-                Toast.makeText(this@ScrcpyActivity, "已熄灭被控端屏幕 (投屏后台运行)", Toast.LENGTH_SHORT).show()
+                val changed = manager.turnScreenOff()
+                if (changed) {
+                    isScreenOff = true
+                    Toast.makeText(this@ScrcpyActivity, "已熄灭被控端屏幕 (投屏后台运行)", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@ScrcpyActivity, "当前设备暂不支持在锁屏投屏时熄屏", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1408,10 +1412,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             binding.tvStreamStatus.visibility = View.GONE
                             isFirst = false
 
-                            if (config.turnScreenOff && !isScreenOff) {
-                                isScreenOff = true
+                            if (config.turnScreenOff && !isScreenOff && !mgr.isSecureLockScreenShowing()) {
                                 lifecycleScope.launch(Dispatchers.IO) {
-                                    mgr.turnScreenOff()
+                                    mgr.syncLockScreenState()
+                                    if (!mgr.isSecureLockScreenShowing() && mgr.turnScreenOff()) {
+                                        isScreenOff = true
+                                    }
                                 }
                             }
                         }

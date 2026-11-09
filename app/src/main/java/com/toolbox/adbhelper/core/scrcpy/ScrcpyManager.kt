@@ -1127,17 +1127,19 @@ class ScrcpyManager(
     private fun enqueueShellInput(command: String) {
         shellInputExecutor.execute {
             try {
-                if (remoteSdkVersion >= 34 && isScreenDimmed) {
-                    val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
-                    adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
-                    isScreenDimmed = false
-                    Thread.sleep(250)
+                if (remoteSdkVersion >= 34) {
+                    if (isScreenDimmed) {
+                        val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
+                        adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
+                        isScreenDimmed = false
+                    }
+                    // Wake immediately before each lock-screen gesture, without unlocking it.
                     adbClient.executeShell("input keyevent 224", 3000)
-                    Thread.sleep(250)
+                    Thread.sleep(180)
                 }
                 adbClient.executeShell(command, 3000)
                 if (remoteSdkVersion >= 34 && command.startsWith("input swipe ")) {
-                    Thread.sleep(300)
+                    Thread.sleep(500)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Shell input failed: ${e.message}")
@@ -1306,18 +1308,17 @@ class ScrcpyManager(
     /**
      * 被控端物理熄屏（底层切断屏幕硬件供电，但系统不休眠，视频流与后台交互持续正常输出，绝不黑屏）
      */
-    suspend fun turnScreenOff() = withContext(Dispatchers.IO) {
-        // Keep the device awake so Android 14 does not suspend video and input streams.
+    suspend fun turnScreenOff(): Boolean = withContext(Dispatchers.IO) {
         try {
             adbClient.executeShell("svc power stayon true")
         } catch (e: Exception) {
             Log.w(TAG, "Unable to keep device awake: ${e.message}")
         }
 
-        // Android 14 may reject the legacy scrcpy SurfaceControl call without reporting an ack.
-        if (remoteSdkVersion >= 34 && refreshSecureKeyguardState()) {
-            Log.i(TAG, "Keeping Android 14 screen visible while secure keyguard is showing")
-            return@withContext
+        if (remoteSdkVersion >= 34) {
+            refreshSecureKeyguardState()
+            Log.i(TAG, "Android 14 screen-off request ignored to keep lock-screen input visible")
+            return@withContext false
         }
 
         try {
@@ -1332,8 +1333,10 @@ class ScrcpyManager(
                 setDisplayPowerMode(0)
             }
             Log.i(TAG, "Screen dimmed while keeping the device awake")
+            return@withContext true
         } catch (e: Exception) {
             Log.w(TAG, "Failed to turn screen off: ${e.message}")
+            return@withContext false
         }
     }
 
