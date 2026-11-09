@@ -53,6 +53,8 @@ class ScrcpyManager(
     @Volatile
     private var lastKeyguardCheckMs: Long = 0L
     @Volatile
+    private var isDeviceScreenOn: Boolean = true
+    @Volatile
     private var shellDownX: Int = 0
     @Volatile
     private var shellDownY: Int = 0
@@ -120,7 +122,7 @@ class ScrcpyManager(
 
     fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing
 
-    fun usesShellTouchInput(): Boolean = remoteSdkVersion >= 34 || isSecureKeyguardShowing
+    fun usesShellTouchInput(): Boolean = isSecureKeyguardShowing
 
     /**
      * Wake Android 14 securely without asking the legacy scrcpy server to handle Keyguard.
@@ -1110,8 +1112,9 @@ class ScrcpyManager(
     private fun readSecureKeyguardState(): Boolean {
         return try {
             val output = adbClient.executeShell(
-                "dumpsys window policy 2>/dev/null | grep -E 'showing=|secure=|mIsShowing'"
+                "dumpsys window policy 2>/dev/null | grep -E 'showing=|secure=|mIsShowing|screenState='"
             )
+            isDeviceScreenOn = !output.contains("SCREEN_STATE_OFF") && !output.contains("SCREEN_STATE_DOZE")
             val showing = Regex("""(?m)^\s*showing=true\s*$""").containsMatchIn(output) ||
                 Regex("""(?m)^\s*mIsShowing=true\s*$""").containsMatchIn(output)
             val secure = Regex("""(?m)^\s*secure=true\s*$""").containsMatchIn(output)
@@ -1142,12 +1145,10 @@ class ScrcpyManager(
                         .trim().toIntOrNull() ?: 0
                 }
                 while (isStreaming.get() && !Thread.currentThread().isInterrupted) {
-                    if (usesShellTouchInput()) {
-                        refreshSecureKeyguardState()
-                        if (isSecureKeyguardShowing) {
-                            adbClient.executeShell("input keyevent 224", 3000)
-                            Log.d(TAG, "Reset lock-screen user-activity timer")
-                        }
+                    refreshSecureKeyguardState()
+                    if (isSecureKeyguardShowing || !isDeviceScreenOn) {
+                        adbClient.executeShell("input keyevent 224", 3000)
+                        isDeviceScreenOn = true
                     }
                     Thread.sleep(3000)
                 }
@@ -1172,20 +1173,14 @@ class ScrcpyManager(
     private fun enqueueShellInput(command: String) {
         shellInputExecutor.execute {
             try {
-                if (remoteSdkVersion >= 34) {
-                    if (isScreenDimmed) {
-                        val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
-                        adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
-                        isScreenDimmed = false
-                    }
-                    // Wake immediately before each lock-screen gesture, without unlocking it.
-                    adbClient.executeShell("input keyevent 224", 3000)
-                    Thread.sleep(180)
+                if (isScreenDimmed) {
+                    val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
+                    adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
+                    isScreenDimmed = false
                 }
-                adbClient.executeShell(command, 3000)
-                if (remoteSdkVersion >= 34 && command.startsWith("input swipe ")) {
-                    Thread.sleep(500)
-                }
+                val needsWake = remoteSdkVersion >= 34 && !isDeviceScreenOn
+                adbClient.executeShell(if (needsWake) "input keyevent 224; $command" else command, 3000)
+                if (needsWake) isDeviceScreenOn = true
             } catch (e: Exception) {
                 Log.w(TAG, "Shell input failed: ${e.message}")
             }
@@ -1198,10 +1193,12 @@ class ScrcpyManager(
             val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
             adbClient.executeShell("settings put system screen_brightness $brightness")
             isScreenDimmed = false
-            kotlinx.coroutines.delay(250)
         }
-        adbClient.executeShell("input keyevent 224")
-        kotlinx.coroutines.delay(250)
+        if (!isDeviceScreenOn) {
+            adbClient.executeShell("input keyevent 224")
+            isDeviceScreenOn = true
+            kotlinx.coroutines.delay(120)
+        }
     }
 
     suspend fun syncLockScreenState() = withContext(Dispatchers.IO) {
@@ -1275,11 +1272,6 @@ class ScrcpyManager(
     ) {
         if (usesShellTouchInput()) {
             sendTouchThroughShell(action, x, y, devW, devH)
-            if (action == MotionEvent.ACTION_UP) {
-                shellInputExecutor.execute {
-                    isSecureKeyguardShowing = readSecureKeyguardState()
-                }
-            }
             return
         }
 

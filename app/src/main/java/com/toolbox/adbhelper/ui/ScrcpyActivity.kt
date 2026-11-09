@@ -880,68 +880,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         banner.visibility = if (show) View.VISIBLE else View.GONE
     }
 
+    /**
+     * 安全锁屏的密码层禁止屏幕采集，投屏只能得到黑帧，
+     * 因此统一走独立的盲输入界面完成解锁。
+     */
     private fun showBlindUnlockDialog() {
-        val manager = scrcpyManager ?: return
-        val density = resources.displayMetrics.density
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding((20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt(), 0)
-        }
-        val tip = android.widget.TextView(this).apply {
-            text = "系统禁止采集锁屏密码界面，投屏无法显示。此处输入的数字会用 ADB 按键盲发到被控机。"
-            textSize = 13f
-        }
-        val input = android.widget.EditText(this).apply {
-            hint = "锁屏密码"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            setSingleLine(true)
-        }
-        container.addView(tip)
-        container.addView(input)
-
-        fun sendDigits(submit: Boolean) {
-            val text = input.text?.toString().orEmpty().filter { it.isDigit() }
-            if (text.isEmpty()) {
-                Toast.makeText(this, "请输入数字密码", Toast.LENGTH_SHORT).show()
-                return
-            }
-            lifecycleScope.launch(Dispatchers.IO) {
-                for (ch in text) {
-                    manager.sendKeyViaShell(7 + (ch - '0'))
-                    delay(120)
-                }
-                if (submit) {
-                    delay(150)
-                    manager.sendKeyViaShell(66)
-                }
-                delay(400)
-                manager.syncLockScreenState()
-                withContext(Dispatchers.Main) {
-                    val stillLocked = manager.isSecureLockScreenShowing()
-                    Toast.makeText(
-                        this@ScrcpyActivity,
-                        if (stillLocked) "已发送密码，请在手机上确认结果" else "已发送密码，投屏正在恢复",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        }
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("盲输入锁屏密码")
-            .setView(container)
-            .setPositiveButton("发送并解锁") { _, _ -> sendDigits(true) }
-            .setNeutralButton("退格", null)
-            .setNegativeButton("取消", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) { manager.sendKeyViaShell(67) }
-            }
-        }
-        dialog.show()
+        startActivity(android.content.Intent(this, BlindUnlockActivity::class.java))
     }
 
     override fun onStart() {
@@ -1751,6 +1695,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val fullscreenAction = if (config.isFullscreen) "🔲 退出全屏显示" else "🔲 切换全屏显示"
         val items = arrayOf(
             "📋 剪贴板传输",
+            "🔑 盲输入锁屏密码",
             headsetAction,
             fullscreenAction,
             "📱 被控端熄屏/亮屏",
@@ -1764,7 +1709,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> showClipboardTransferDialog()
-                    1 -> {
+                    1 -> showBlindUnlockDialog()
+                    2 -> {
                         val adbClient = DeviceManager.adbClient
                         if (adbClient == null || !adbClient.isConnected) {
                             Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
@@ -1779,13 +1725,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
                         }
                     }
-                    2 -> {
+                    3 -> {
                         config.isFullscreen = !config.isFullscreen
                         applyFullscreen(config.isFullscreen)
                         saveConfig()
                     }
-                    3 -> toggleDeviceScreen()
-                    4 -> {
+                    4 -> toggleDeviceScreen()
+                    5 -> {
                         config.navPosition = NavPosition.BOTTOM
                         isFabMovedByUser = false
                         binding.fabQuickMenu.translationX = 0f
@@ -1794,7 +1740,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         saveConfig()
                         Toast.makeText(this, "已重置控制栏与悬浮球位置", Toast.LENGTH_SHORT).show()
                     }
-                    5 -> {
+                    6 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {
                             userSelectedFallback = true
                             Toast.makeText(this, "正在切换至兼容截图投屏模式...", Toast.LENGTH_SHORT).show()
@@ -1805,8 +1751,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             startStreaming()
                         }
                     }
-                    6 -> showSettingsDialog()
-                    7 -> finish()
+                    7 -> showSettingsDialog()
+                    8 -> finish()
                 }
             }
             .show()

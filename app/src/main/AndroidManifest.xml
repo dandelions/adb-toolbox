@@ -54,6 +54,11 @@
             android:label="屏幕投屏" />
 
         <activity
+            android:name=".ui.BlindUnlockActivity"
+            android:exported="false"
+            android:label="盲输入锁屏密码" />
+
+        <activity
             android:name=".ui.TerminalActivity"
             android:exported="false"
             android:label="终端控制台" />

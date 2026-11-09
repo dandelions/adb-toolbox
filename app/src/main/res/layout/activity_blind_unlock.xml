@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#101418"
+    android:fitsSystemWindows="true"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="盲输入锁屏密码"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvBlindHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:lineSpacingExtra="3dp"
+        android:text="Android 禁止采集锁屏密码界面，投屏只能显示黑屏。这里按下的数字会通过 ADB 按键逐个发送到被控设备，请确认密码正确后再发送。"
+        android:textColor="#9AA5B1"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tvPinDots"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:gravity="center"
+        android:minHeight="52dp"
+        android:text=""
+        android:textColor="#4CAF50"
+        android:textSize="26sp" />
+
+    <GridLayout
+        android:id="@+id/gridKeypad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="12dp"
+        android:columnCount="3"
+        android:rowCount="4" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnBlindClear"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="清空" />
+
+        <Button
+            android:id="@+id/btnBlindSend"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="2"
+            android:text="发送并解锁" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvBlindStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:text=""
+        android:textColor="#B0BEC5"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/btnBlindClose"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="?attr/selectableItemBackground"
+        android:text="关闭"
+        android:textColor="#FF8A80" />
+
+</LinearLayout>
