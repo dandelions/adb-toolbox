@@ -64,6 +64,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var touchDownTime = 0L
 
     private var isScreenOff = false
+    private var lockScreenBanner: android.widget.TextView? = null
+    private var lockBannerJob: Job? = null
     private var surfaceCreated = false
     private var isFallbackMode = false
     private var userSelectedFallback = false
@@ -248,6 +250,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun initViews() {
         binding.toolbar.setNavigationOnClickListener { finish() }
+        setupLockScreenUnlockEntry()
 
         binding.btnBack.setOnClickListener { lifecycleScope.launch { scrcpyManager?.sendBack() } }
         binding.btnHome.setOnClickListener { lifecycleScope.launch { scrcpyManager?.sendHome() } }
@@ -844,6 +847,103 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.ivScreen.setOnTouchListener(touchListener)
     }
 
+    /**
+     * 安全锁屏的密码层禁止屏幕采集，投屏只能得到黑帧，因此提供一个盲输入解锁入口。
+     */
+    private fun setupLockScreenUnlockEntry() {
+        val banner = android.widget.TextView(this).apply {
+            text = "安全锁屏：密码界面无法投屏，点此盲输入密码"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(32, 18, 32, 18)
+            setBackgroundColor(0xCC202124.toInt())
+            visibility = View.GONE
+            setOnClickListener { showBlindUnlockDialog() }
+        }
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = (96 * resources.displayMetrics.density).toInt()
+        }
+        binding.rootContainer.addView(banner, params)
+        lockScreenBanner = banner
+    }
+
+    private fun updateLockScreenBanner() {
+        val banner = lockScreenBanner ?: return
+        val manager = scrcpyManager
+        val show = manager != null && manager.isSecureLockScreenShowing() &&
+            isActivityResumed && !isActivityStopped
+        banner.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun showBlindUnlockDialog() {
+        val manager = scrcpyManager ?: return
+        val density = resources.displayMetrics.density
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt(), 0)
+        }
+        val tip = android.widget.TextView(this).apply {
+            text = "系统禁止采集锁屏密码界面，投屏无法显示。此处输入的数字会用 ADB 按键盲发到被控机。"
+            textSize = 13f
+        }
+        val input = android.widget.EditText(this).apply {
+            hint = "锁屏密码"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+        container.addView(tip)
+        container.addView(input)
+
+        fun sendDigits(submit: Boolean) {
+            val text = input.text?.toString().orEmpty().filter { it.isDigit() }
+            if (text.isEmpty()) {
+                Toast.makeText(this, "请输入数字密码", Toast.LENGTH_SHORT).show()
+                return
+            }
+            lifecycleScope.launch(Dispatchers.IO) {
+                for (ch in text) {
+                    manager.sendKeyViaShell(7 + (ch - '0'))
+                    delay(120)
+                }
+                if (submit) {
+                    delay(150)
+                    manager.sendKeyViaShell(66)
+                }
+                delay(400)
+                manager.syncLockScreenState()
+                withContext(Dispatchers.Main) {
+                    val stillLocked = manager.isSecureLockScreenShowing()
+                    Toast.makeText(
+                        this@ScrcpyActivity,
+                        if (stillLocked) "已发送密码，请在手机上确认结果" else "已发送密码，投屏正在恢复",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("盲输入锁屏密码")
+            .setView(container)
+            .setPositiveButton("发送并解锁") { _, _ -> sendDigits(true) }
+            .setNeutralButton("退格", null)
+            .setNegativeButton("取消", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                lifecycleScope.launch(Dispatchers.IO) { manager.sendKeyViaShell(67) }
+            }
+        }
+        dialog.show()
+    }
+
     override fun onStart() {
         super.onStart()
         isActivityStopped = false
@@ -870,11 +970,24 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         // 从后台切回前台时，主动检查连接并恢复推流与画布绑定
         checkAndResumeStream()
+        startLockBannerMonitor()
+    }
+
+    private fun startLockBannerMonitor() {
+        lockBannerJob?.cancel()
+        lockBannerJob = lifecycleScope.launch {
+            while (isActive && isActivityResumed) {
+                updateLockScreenBanner()
+                delay(2000)
+            }
+        }
     }
 
     override fun onPause() {
         super.onPause()
         isActivityResumed = false
+        lockBannerJob?.cancel()
+        lockBannerJob = null
     }
 
     override fun onStop() {

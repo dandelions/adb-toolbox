@@ -1485,6 +1485,18 @@ class ScrcpyManager(
     suspend fun sendVolumeDown() = sendKey(25)
 
     /**
+     * 直接通过 ADB 注入按键。安全锁屏的密码层受系统采集保护，投屏只能得到黑帧，
+     * 因此锁屏解锁只能依靠按键注入完成盲输入。
+     */
+    suspend fun sendKeyViaShell(keyCode: Int) = withContext(Dispatchers.IO) {
+        try {
+            adbClient.executeShell("input keyevent $keyCode", 3000)
+        } catch (e: Exception) {
+            Log.w(TAG, "Shell keyevent $keyCode failed: ${e.message}")
+        }
+    }
+
+    /**
      * 发送文本到被控机剪贴板，支持可选自动粘贴
      */
     suspend fun setDeviceClipboard(text: String, paste: Boolean = false): Boolean = withContext(Dispatchers.IO) {
