@@ -155,16 +155,17 @@ class BlindUnlockActivity : AppCompatActivity() {
                 val stillLocked = isSecureKeyguardShowing(client)
                 withContext(Dispatchers.Main) {
                     sending = false
-                    tvStatus.text = if (submit && !stillLocked) {
-                        "已发送并解锁成功"
-                    } else if (submit) {
-                        "已发送密码，若未解锁请检查密码是否正确"
-                    } else {
-                        "已发送数字"
-                    }
                     if (submit && !stillLocked) {
                         pinBuilder.setLength(0)
                         renderPin()
+                        // 解锁成功后直接回到投屏画面
+                        finish()
+                    } else {
+                        tvStatus.text = if (submit) {
+                            "已发送密码，若未解锁请检查密码是否正确"
+                        } else {
+                            "已发送数字"
+                        }
                     }
                 }
             } catch (e: Exception) {
