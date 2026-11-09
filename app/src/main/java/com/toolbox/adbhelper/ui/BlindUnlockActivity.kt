@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
+import com.toolbox.adbhelper.core.adb.AdbClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,6 +71,18 @@ class BlindUnlockActivity : AppCompatActivity() {
 
         renderPin()
         updateTargetHint()
+        refreshLockState()
+    }
+
+    private fun refreshLockState() {
+        val client = DeviceManager.adbClient ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val locked = isSecureKeyguardShowing(client)
+            withContext(Dispatchers.Main) {
+                if (sending) return@withContext
+                tvStatus.text = if (locked) "设备已锁屏，输入密码后点“发送并解锁”" else "设备当前未锁屏"
+            }
+        }
     }
 
     private fun onKeyPressed(label: String) {
@@ -120,16 +133,25 @@ class BlindUnlockActivity : AppCompatActivity() {
             try {
                 // 点亮屏幕但不解锁，避免密码键落在息屏状态
                 client.executeShell("input keyevent $KEYCODE_WAKEUP", 3000)
-                delay(300)
+                delay(250)
+                // 锁屏壁纸状态下滑出密码键盘，否则数字会被直接丢弃
+                if (isSecureKeyguardShowing(client)) {
+                    val (width, height) = deviceSize(client)
+                    client.executeShell(
+                        "input swipe ${width / 2} ${(height * 0.90).toInt()} ${width / 2} ${(height * 0.40).toInt()} 300",
+                        4000
+                    )
+                    delay(700)
+                }
                 for (ch in digits) {
                     client.executeShell("input keyevent ${KEYCODE_0 + (ch - '0')}", 3000)
-                    delay(120)
+                    delay(130)
                 }
                 if (submit) {
-                    delay(150)
+                    delay(200)
                     client.executeShell("input keyevent $KEYCODE_ENTER", 3000)
                 }
-                delay(600)
+                delay(800)
                 val stillLocked = isSecureKeyguardShowing(client)
                 withContext(Dispatchers.Main) {
                     sending = false
@@ -154,7 +176,23 @@ class BlindUnlockActivity : AppCompatActivity() {
         }
     }
 
-    private fun isSecureKeyguardShowing(client: com.toolbox.adbhelper.core.adb.AdbClient): Boolean {
+    private fun deviceSize(client: AdbClient): Pair<Int, Int> {
+        return try {
+            val out = client.executeShell("wm size", 3000)
+            val override = Regex("""Override size:\s*(\d+)x(\d+)""").find(out)
+            val physical = Regex("""Physical size:\s*(\d+)x(\d+)""").find(out)
+            val match = override ?: physical
+            if (match != null) {
+                match.groupValues[1].toInt() to match.groupValues[2].toInt()
+            } else {
+                1080 to 2400
+            }
+        } catch (_: Exception) {
+            1080 to 2400
+        }
+    }
+
+    private fun isSecureKeyguardShowing(client: AdbClient): Boolean {
         return try {
             val output = client.executeShell(
                 "dumpsys window policy 2>/dev/null | grep -E 'showing=|secure=|mIsShowing'",
