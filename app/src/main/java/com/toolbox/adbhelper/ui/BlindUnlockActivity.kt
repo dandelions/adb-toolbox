@@ -159,6 +159,7 @@ class BlindUnlockActivity : AppCompatActivity() {
                         pinBuilder.setLength(0)
                         renderPin()
                         // 解锁成功后直接回到投屏画面
+                        setResult(RESULT_OK)
                         finish()
                     } else {
                         tvStatus.text = if (submit) {
