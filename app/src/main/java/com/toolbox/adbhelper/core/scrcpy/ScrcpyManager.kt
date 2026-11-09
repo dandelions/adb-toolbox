@@ -86,6 +86,8 @@ class ScrcpyManager(
     private var physicalDisplayHeight: Int = 0
     @Volatile
     private var brightnessBeforeScreenOff: Int? = null
+    private var brightnessFloatBeforeScreenOff: Float? = null
+    private var brightnessModeBeforeScreenOff: Int? = null
     @Volatile
     private var isScreenDimmed: Boolean = false
 
@@ -1170,14 +1172,33 @@ class ScrcpyManager(
         } catch (_: Exception) {}
     }
 
+    /** 熄屏后恢复原始亮度与自动亮度模式 */
+    private fun restoreBrightnessIfDimmed() {
+        if (!isScreenDimmed) return
+        try {
+            val floatValue = brightnessFloatBeforeScreenOff
+            val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
+            adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
+            if (floatValue != null) {
+                adbClient.executeShell("settings put system screen_brightness_float $floatValue", 3000)
+            }
+            val savedMode = brightnessModeBeforeScreenOff
+            if (savedMode != null) {
+                adbClient.executeShell("settings put system screen_brightness_mode $savedMode", 3000)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Restore brightness failed: ${e.message}")
+        }
+        isScreenDimmed = false
+        brightnessBeforeScreenOff = null
+        brightnessFloatBeforeScreenOff = null
+        brightnessModeBeforeScreenOff = null
+    }
+
     private fun enqueueShellInput(command: String) {
         shellInputExecutor.execute {
             try {
-                if (isScreenDimmed) {
-                    val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
-                    adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
-                    isScreenDimmed = false
-                }
+                restoreBrightnessIfDimmed()
                 val needsWake = remoteSdkVersion >= 34 && !isDeviceScreenOn
                 adbClient.executeShell(if (needsWake) "input keyevent 224; $command" else command, 3000)
                 if (needsWake) isDeviceScreenOn = true
@@ -1189,11 +1210,7 @@ class ScrcpyManager(
 
     private suspend fun prepareShellTouch() {
         if (remoteSdkVersion < 34) return
-        if (isScreenDimmed) {
-            val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
-            adbClient.executeShell("settings put system screen_brightness $brightness")
-            isScreenDimmed = false
-        }
+        restoreBrightnessIfDimmed()
         if (!isDeviceScreenOn) {
             adbClient.executeShell("input keyevent 224")
             isDeviceScreenOn = true
@@ -1361,11 +1378,27 @@ class ScrcpyManager(
         }
 
         try {
+            val currentMode = adbClient.executeShell("settings get system screen_brightness_mode")
+                .trim().toIntOrNull()
+            if (currentMode != null && brightnessModeBeforeScreenOff == null) {
+                brightnessModeBeforeScreenOff = currentMode
+            }
+            // 自动亮度会按环境光重新计算并覆盖写入值，必须先关闭才能让熄屏真正生效
+            if (currentMode != 0) {
+                adbClient.executeShell("settings put system screen_brightness_mode 0")
+            }
+            // Android 12+ 以浮点亮度为准，只写整数亮度会被系统忽略
+            val currentFloat = adbClient.executeShell("settings get system screen_brightness_float")
+                .trim().toFloatOrNull()
+            if (currentFloat != null && currentFloat > 0f && brightnessFloatBeforeScreenOff == null) {
+                brightnessFloatBeforeScreenOff = currentFloat
+            }
             val currentBrightness = adbClient.executeShell("settings get system screen_brightness")
                 .trim().toIntOrNull()
             if (currentBrightness != null && currentBrightness > 0) {
                 brightnessBeforeScreenOff = currentBrightness
             }
+            adbClient.executeShell("settings put system screen_brightness_float 0.0")
             adbClient.executeShell("settings put system screen_brightness 0")
             isScreenDimmed = true
             if (remoteSdkVersion < 34) {
@@ -1389,8 +1422,18 @@ class ScrcpyManager(
             }
             val brightness = brightnessBeforeScreenOff ?: 128
             adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
+            val savedFloat = brightnessFloatBeforeScreenOff
+            if (savedFloat != null) {
+                adbClient.executeShell("settings put system screen_brightness_float $savedFloat")
+            }
+            val savedMode = brightnessModeBeforeScreenOff
+            if (savedMode != null && savedMode != 0) {
+                adbClient.executeShell("settings put system screen_brightness_mode $savedMode")
+            }
             isScreenDimmed = false
             brightnessBeforeScreenOff = null
+            brightnessFloatBeforeScreenOff = null
+            brightnessModeBeforeScreenOff = null
         } catch (e: Exception) {
             Log.w(TAG, "Unable to restore screen brightness: ${e.message}")
         }
