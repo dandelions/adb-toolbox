@@ -55,6 +55,10 @@ class ScrcpyManager(
     @Volatile
     private var isDeviceScreenOn: Boolean = true
     @Volatile
+    private var screenOffRequested: Boolean = false
+    @Volatile
+    private var displayPowerOffConfirmed: Boolean = false
+    @Volatile
     private var shellDownX: Int = 0
     @Volatile
     private var shellDownY: Int = 0
@@ -388,6 +392,11 @@ class ScrcpyManager(
                                 while (isStreaming.get()) {
                                     val line = reader.readLine() ?: break
                                     Log.d(TAG, "[scrcpy-server] $line")
+                                    if (line.contains("Device display turned off")) {
+                                        displayPowerOffConfirmed = true
+                                    } else if (line.contains("Device display turned on")) {
+                                        displayPowerOffConfirmed = false
+                                    }
                                 }
                             } catch (_: Exception) {}
                         }, "ScrcpyServerLogThread").apply { isDaemon = true; start() }
@@ -1148,7 +1157,7 @@ class ScrcpyManager(
                 }
                 while (isStreaming.get() && !Thread.currentThread().isInterrupted) {
                     refreshSecureKeyguardState()
-                    if (isSecureKeyguardShowing || !isDeviceScreenOn) {
+                    if (!screenOffRequested && (isSecureKeyguardShowing || !isDeviceScreenOn)) {
                         adbClient.executeShell("input keyevent 224", 3000)
                         isDeviceScreenOn = true
                     }
@@ -1199,7 +1208,7 @@ class ScrcpyManager(
         shellInputExecutor.execute {
             try {
                 restoreBrightnessIfDimmed()
-                val needsWake = remoteSdkVersion >= 34 && !isDeviceScreenOn
+                val needsWake = remoteSdkVersion >= 34 && !screenOffRequested && !isDeviceScreenOn
                 adbClient.executeShell(if (needsWake) "input keyevent 224; $command" else command, 3000)
                 if (needsWake) isDeviceScreenOn = true
             } catch (e: Exception) {
@@ -1211,7 +1220,7 @@ class ScrcpyManager(
     private suspend fun prepareShellTouch() {
         if (remoteSdkVersion < 34) return
         restoreBrightnessIfDimmed()
-        if (!isDeviceScreenOn) {
+        if (!screenOffRequested && !isDeviceScreenOn) {
             adbClient.executeShell("input keyevent 224")
             isDeviceScreenOn = true
             kotlinx.coroutines.delay(120)
@@ -1359,6 +1368,46 @@ class ScrcpyManager(
 
     // ====== 熄屏控制与电源管理 ======
 
+    /** 记录原始亮度与自动亮度模式，并把自动亮度关掉，避免写入值被环境光覆盖 */
+    private fun saveBrightnessState() {
+        try {
+            val mode = adbClient.executeShell("settings get system screen_brightness_mode")
+                .trim().toIntOrNull()
+            if (mode != null && brightnessModeBeforeScreenOff == null) {
+                brightnessModeBeforeScreenOff = mode
+            }
+            if (mode != 0) {
+                adbClient.executeShell("settings put system screen_brightness_mode 0")
+            }
+            val floatValue = adbClient.executeShell("settings get system screen_brightness_float")
+                .trim().toFloatOrNull()
+            if (floatValue != null && floatValue > 0f && brightnessFloatBeforeScreenOff == null) {
+                brightnessFloatBeforeScreenOff = floatValue
+            }
+            val brightness = adbClient.executeShell("settings get system screen_brightness")
+                .trim().toIntOrNull()
+            if (brightness != null && brightness > 0) {
+                brightnessBeforeScreenOff = brightness
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Save brightness state failed: ${e.message}")
+        }
+    }
+
+    /** 兜底方案：把亮度压到最低，屏幕接近全黑但仍保持显示合成 */
+    private fun applyBrightnessDim(): Boolean {
+        return try {
+            adbClient.executeShell("settings put system screen_brightness_float 0.0")
+            adbClient.executeShell("settings put system screen_brightness 0")
+            isScreenDimmed = true
+            Log.i(TAG, "Screen dimmed while keeping the device awake")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Dim screen failed: ${e.message}")
+            false
+        }
+    }
+
     /**
      * 被控端物理熄屏（底层切断屏幕硬件供电，但系统不休眠，视频流与后台交互持续正常输出，绝不黑屏）
      */
@@ -1377,49 +1426,36 @@ class ScrcpyManager(
             }
         }
 
-        try {
-            val currentMode = adbClient.executeShell("settings get system screen_brightness_mode")
-                .trim().toIntOrNull()
-            if (currentMode != null && brightnessModeBeforeScreenOff == null) {
-                brightnessModeBeforeScreenOff = currentMode
+        saveBrightnessState()
+
+        // 与 Android 10 相同的路径：直接关闭显示电源，屏幕硬件真正熄灭但合成继续，投屏不受影响
+        displayPowerOffConfirmed = false
+        if (setDisplayPowerMode(0)) {
+            // 以服务端日志 "Device display turned off" 作为成功依据，dumpsys 的 screenState 不会反映该状态
+            var waited = 0
+            while (waited < 2000 && !displayPowerOffConfirmed) {
+                kotlinx.coroutines.delay(100)
+                waited += 100
             }
-            // 自动亮度会按环境光重新计算并覆盖写入值，必须先关闭才能让熄屏真正生效
-            if (currentMode != 0) {
-                adbClient.executeShell("settings put system screen_brightness_mode 0")
+            if (displayPowerOffConfirmed) {
+                screenOffRequested = true
+                Log.i(TAG, "Display powered off while mirroring continues")
+                return@withContext true
             }
-            // Android 12+ 以浮点亮度为准，只写整数亮度会被系统忽略
-            val currentFloat = adbClient.executeShell("settings get system screen_brightness_float")
-                .trim().toFloatOrNull()
-            if (currentFloat != null && currentFloat > 0f && brightnessFloatBeforeScreenOff == null) {
-                brightnessFloatBeforeScreenOff = currentFloat
-            }
-            val currentBrightness = adbClient.executeShell("settings get system screen_brightness")
-                .trim().toIntOrNull()
-            if (currentBrightness != null && currentBrightness > 0) {
-                brightnessBeforeScreenOff = currentBrightness
-            }
-            adbClient.executeShell("settings put system screen_brightness_float 0.0")
-            adbClient.executeShell("settings put system screen_brightness 0")
-            isScreenDimmed = true
-            if (remoteSdkVersion < 34) {
-                setDisplayPowerMode(0)
-            }
-            Log.i(TAG, "Screen dimmed while keeping the device awake")
-            return@withContext true
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to turn screen off: ${e.message}")
-            return@withContext false
+            setDisplayPowerMode(2)
+            Log.w(TAG, "Display power-off not confirmed, falling back to dimming")
         }
+        return@withContext applyBrightnessDim()
     }
 
     /**
      * 被控端点亮物理屏幕并尝试唤醒解锁
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
+        screenOffRequested = false
         try {
-            if (remoteSdkVersion < 34) {
-                setDisplayPowerMode(2)
-            }
+            // 先恢复显示电源，再还原亮度，Android 10 与 14 共用同一条路径
+            setDisplayPowerMode(2)
             val brightness = brightnessBeforeScreenOff ?: 128
             adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
             val savedFloat = brightnessFloatBeforeScreenOff

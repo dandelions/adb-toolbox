@@ -11,8 +11,8 @@ android {
         applicationId = "com.toolbox.adbhelper"
         minSdk = 24
         targetSdk = 34
-        versionCode = 23
-        versionName = "1.1.12"
+        versionCode = 24
+        versionName = "1.1.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
