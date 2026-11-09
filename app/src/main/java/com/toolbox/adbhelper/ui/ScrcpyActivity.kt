@@ -187,9 +187,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun initDeviceResolutionAndStart() {
         val manager = scrcpyManager ?: return
         lifecycleScope.launch(Dispatchers.IO) {
-            // 主动唤醒屏幕；有 PIN/图案密码时保留系统锁屏，等待用户输入
-            manager.turnScreenOn()
             manager.syncLockScreenState()
+            // Wake the device after detecting its Android version so Android 14 avoids legacy scrcpy power control.
+            manager.turnScreenOn()
 
             val (w, h) = manager.getDeviceResolution()
             physicalWidth = w
@@ -555,7 +555,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val touchListener = View.OnTouchListener { v, event ->
             val manager = scrcpyManager ?: return@OnTouchListener false
             val (curDevW, curDevH) = getCurrentDeviceDimensions()
-            val useControl = manager.hasControl()
+            val useControl = manager.hasControl() && !manager.usesShellTouchInput()
             val secureLockScreen = manager.isSecureLockScreenShowing()
 
             // 极为关键：若是 scrcpy 原生控制流，目标坐标系与尺寸必须是服务端的真实视频编码尺寸 (serverVideoWidth x serverVideoHeight)

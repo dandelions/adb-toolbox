@@ -49,6 +49,8 @@ class ScrcpyManager(
     @Volatile
     private var isSecureKeyguardShowing: Boolean = false
     @Volatile
+    private var remoteSdkVersion: Int = 0
+    @Volatile
     private var lastKeyguardCheckMs: Long = 0L
     @Volatile
     private var shellDownX: Int = 0
@@ -64,6 +66,10 @@ class ScrcpyManager(
     val lastDeviceClipboard: String get() = _deviceClipboard.get()
     @Volatile
     private var getClipboardDeferred: CompletableDeferred<String>? = null
+    @Volatile
+    private var clipboardSequence: Long = 1L
+    @Volatile
+    private var clipboardAckDeferred: CompletableDeferred<Boolean>? = null
     var onDeviceClipboardChanged: ((String) -> Unit)? = null
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
@@ -76,6 +82,8 @@ class ScrcpyManager(
     private var physicalDisplayHeight: Int = 0
     @Volatile
     private var brightnessBeforeScreenOff: Int? = null
+    @Volatile
+    private var isScreenDimmed: Boolean = false
 
     /**
      * 动态更新 MediaCodec 的输出 Surface (API 23+)
@@ -109,6 +117,8 @@ class ScrcpyManager(
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
     fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing
+
+    fun usesShellTouchInput(): Boolean = remoteSdkVersion >= 34 || isSecureKeyguardShowing
 
     /**
      * Wake Android 14 securely without asking the legacy scrcpy server to handle Keyguard.
@@ -362,7 +372,7 @@ class ScrcpyManager(
                         // 12.showTouches(false) 13.stayAwake(true) 14.codecOptions(-) 15.encoderName(-) 16.powerOffScreenOnClose(false)
                         // maxSize > 0 代表指定固定分辨率(如1280/1920/854)；maxSize <= 0(如自动适配-1、原画0)传0表示原生无损输出
                         val safeMaxSize = if (config.maxSize > 0) (config.maxSize / 8) * 8 else 0
-                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 1.18 info $safeMaxSize $bitrate $maxFps -1 true - false true 0 false true - - false"
+                        val serverCmd = "CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 5.0.1 log_level=info video=true audio=false max_size=$safeMaxSize video_bit_rate=$bitrate max_fps=$maxFps tunnel_forward=true crop= control=true display_id=0 show_touches=false stay_awake=true power_off_on_close=false clipboard_autosync=false send_device_meta=true send_frame_meta=false send_dummy_byte=true send_stream_meta=true"
                         val sStream = adbClient.connection.openStream("shell:$serverCmd", 5000)
                         serverStream = sStream
 
@@ -409,23 +419,25 @@ class ScrcpyManager(
                                 Log.w(TAG, "Failed to connect scrcpy control stream: ${e.message}")
                             }
 
-                            // 握手步骤 3: 读取 68 字节 meta (64字节设备名 + 2字节宽 + 2字节高)
-                            val meta = ByteArray(68)
-                            var metaRead = 0
-                            while (metaRead < 68) {
-                                val r = activeStream.inputStream.read(meta, metaRead, 68 - metaRead)
-                                if (r < 0) throw java.io.IOException("EOF reading scrcpy metadata")
-                                metaRead += r
+                            // scrcpy 5.0.1 metadata: 64-byte device name, 4-byte codec id, then 12-byte session meta.
+                            val deviceMeta = ByteArray(64)
+                            readFully(activeStream.inputStream, deviceMeta)
+                            val codecId = readInt(activeStream.inputStream)
+                            if (codecId != 0x68323634) {
+                                throw java.io.IOException("Unsupported scrcpy codec id: $codecId")
                             }
-                            val serverW = ((meta[64].toInt() and 0xFF) shl 8) or (meta[65].toInt() and 0xFF)
-                            val serverH = ((meta[66].toInt() and 0xFF) shl 8) or (meta[67].toInt() and 0xFF)
+                            val sessionMeta = ByteArray(12)
+                            readFully(activeStream.inputStream, sessionMeta)
+                            val sessionFlags = java.nio.ByteBuffer.wrap(sessionMeta).int
+                            val serverW = java.nio.ByteBuffer.wrap(sessionMeta, 4, 4).int
+                            val serverH = java.nio.ByteBuffer.wrap(sessionMeta, 8, 4).int
                             if (serverW > 0 && serverH > 0) {
                                 finalW = serverW
                                 finalH = serverH
                                 serverVideoWidth = serverW
                                 serverVideoHeight = serverH
                             }
-                            Log.i(TAG, "Scrcpy-server connected successfully, resolution: ${finalW}x${finalH}")
+                            Log.i(TAG, "Scrcpy 5.0.1 connected, codec=$codecId flags=$sessionFlags resolution=${finalW}x${finalH}")
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Scrcpy-server start failed: ${e.message}, falling back to screenrecord")
@@ -545,6 +557,21 @@ class ScrcpyManager(
                 }
             }
         }, "ScrcpyStreamInThread").apply { start() }
+    }
+
+    private fun readFully(input: InputStream, target: ByteArray) {
+        var offset = 0
+        while (offset < target.size) {
+            val count = input.read(target, offset, target.size - offset)
+            if (count < 0) throw java.io.EOFException("Unexpected end of scrcpy metadata")
+            offset += count
+        }
+    }
+
+    private fun readInt(input: InputStream): Int {
+        val bytes = ByteArray(4)
+        readFully(input, bytes)
+        return java.nio.ByteBuffer.wrap(bytes).int
     }
 
     /**
@@ -1027,10 +1054,10 @@ class ScrcpyManager(
             try {
                 val din = java.io.DataInputStream(stream.inputStream)
                 while (!Thread.currentThread().isInterrupted && isStreaming.get() && !stream.isClosed()) {
-                    val type = din.readByte().toInt()
-                    if (type == 0) { // TYPE_CLIPBOARD = 0
-                        val len = din.readInt()
-                        if (len in 0..1048576) {
+                    when (val type = din.readUnsignedByte()) {
+                        0 -> {
+                            val len = din.readInt()
+                            if (len !in 0..262139) throw java.io.IOException("Invalid clipboard message length: $len")
                             val buf = ByteArray(len)
                             din.readFully(buf)
                             val text = String(buf, java.nio.charset.StandardCharsets.UTF_8)
@@ -1040,8 +1067,12 @@ class ScrcpyManager(
                             getClipboardDeferred = null
                             onDeviceClipboardChanged?.invoke(text)
                         }
-                    } else {
-                        Log.d(TAG, "Received unknown control message type: $type")
+                        1 -> {
+                            val sequence = din.readLong()
+                            clipboardAckDeferred?.complete(true)
+                            Log.d(TAG, "Received clipboard acknowledgement: $sequence")
+                        }
+                        else -> throw java.io.IOException("Unknown scrcpy device message: $type")
                     }
                 }
             } catch (_: java.io.EOFException) {
@@ -1069,6 +1100,8 @@ class ScrcpyManager(
 
         getClipboardDeferred?.cancel()
         getClipboardDeferred = null
+        clipboardAckDeferred?.cancel()
+        clipboardAckDeferred = null
         controlQueue.clear()
     }
 
@@ -1096,14 +1129,39 @@ class ScrcpyManager(
     private fun enqueueShellInput(command: String) {
         shellInputExecutor.execute {
             try {
+                if (remoteSdkVersion >= 34 && isScreenDimmed) {
+                    val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
+                    adbClient.executeShell("settings put system screen_brightness $brightness", 3000)
+                    isScreenDimmed = false
+                    Thread.sleep(250)
+                    adbClient.executeShell("input keyevent 224", 3000)
+                    Thread.sleep(250)
+                }
                 adbClient.executeShell(command, 3000)
+                if (remoteSdkVersion >= 34 && command.startsWith("input swipe ")) {
+                    Thread.sleep(300)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Shell input failed: ${e.message}")
             }
         }
     }
 
+    private suspend fun prepareShellTouch() {
+        if (remoteSdkVersion < 34) return
+        if (isScreenDimmed) {
+            val brightness = (brightnessBeforeScreenOff ?: 128).coerceIn(1, 255)
+            adbClient.executeShell("settings put system screen_brightness $brightness")
+            isScreenDimmed = false
+            kotlinx.coroutines.delay(250)
+        }
+        adbClient.executeShell("input keyevent 224")
+        kotlinx.coroutines.delay(250)
+    }
+
     suspend fun syncLockScreenState() = withContext(Dispatchers.IO) {
+        remoteSdkVersion = adbClient.executeShell("getprop ro.build.version.sdk")
+            .trim().toIntOrNull() ?: 0
         refreshSecureKeyguardState()
     }
 
@@ -1111,8 +1169,7 @@ class ScrcpyManager(
         val stream = controlStream
         if (stream == null || stream.isClosed()) return false
         return try {
-            // scrcpy 1.18: TYPE_SET_SCREEN_POWER_MODE (10), POWER_MODE_OFF=0, NORMAL=2
-            controlQueue.offer(byteArrayOf(10.toByte(), mode.toByte()))
+            controlQueue.offer(byteArrayOf(10.toByte(), if (mode != 0) 1 else 0))
             Log.i(TAG, "Queued scrcpy display power mode: $mode")
             true
         } catch (e: Exception) {
@@ -1171,7 +1228,7 @@ class ScrcpyManager(
         buttons: Int = 1,
         timeMs: Long = SystemClock.uptimeMillis()
     ) {
-        if (isSecureKeyguardShowing) {
+        if (usesShellTouchInput()) {
             sendTouchThroughShell(action, x, y, devW, devH)
             if (action == MotionEvent.ACTION_UP) {
                 shellInputExecutor.execute {
@@ -1219,18 +1276,8 @@ class ScrcpyManager(
                 y
             }.coerceIn(0, targetH - 1)
 
-            // 报文结构共 36 字节:
-            // [0] TYPE: 2 (1 byte, TYPE_INJECT_TOUCH_EVENT / INJECT_MY_TOUCH_EVENT)
-            // [1] action: 0=DOWN, 1=UP, 2=MOVE (1 byte)
-            // [2..9] pointerId: Long (8 bytes)
-            // [10..13] x: Int (4 bytes)
-            // [14..17] y: Int (4 bytes)
-            // [18..19] screenWidth: Short (2 bytes)
-            // [20..21] screenHeight: Short (2 bytes)
-            // [22..23] pressure: Short (2 bytes, 0xffff=1.0f, 释放为0)
-            // [24..27] buttons: Int (4 bytes, 1=PRIMARY, 释放为0)
-            // [28..35] time: Long (8 bytes, 毫秒级时间戳，用于VelocityTracker计算滑动惯性速度)
-            val buf = ByteBuffer.allocate(36)
+            // scrcpy 5.0.1 touch message: type, action, pointer, position, pressure, action button, buttons.
+            val buf = ByteBuffer.allocate(32)
             buf.put(2.toByte())
             buf.put(scrcpyAction)
             buf.putLong(pointerId)
@@ -1243,8 +1290,8 @@ class ScrcpyManager(
                     action == MotionEvent.ACTION_CANCEL ||
                     (action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_POINTER_UP)
             buf.putShort(if (isRelease) 0.toShort() else 0xffff.toShort())
+            buf.putInt(0) // actionButton
             buf.putInt(if (isRelease) 0 else buttons)
-            buf.putLong(timeMs)
 
             // 防网络抖动队列保护：若队列积压过多(>30)，清理旧的MOVE包保持跟手度
             if (action == MotionEvent.ACTION_MOVE && controlQueue.size > 30) {
@@ -1277,7 +1324,10 @@ class ScrcpyManager(
                 brightnessBeforeScreenOff = currentBrightness
             }
             adbClient.executeShell("settings put system screen_brightness 0")
-            setDisplayPowerMode(0)
+            isScreenDimmed = true
+            if (remoteSdkVersion < 34) {
+                setDisplayPowerMode(0)
+            }
             Log.i(TAG, "Screen dimmed while keeping the device awake")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to turn screen off: ${e.message}")
@@ -1289,9 +1339,12 @@ class ScrcpyManager(
      */
     suspend fun turnScreenOn() = withContext(Dispatchers.IO) {
         try {
-            setDisplayPowerMode(2)
+            if (remoteSdkVersion < 34) {
+                setDisplayPowerMode(2)
+            }
             val brightness = brightnessBeforeScreenOff ?: 128
             adbClient.executeShell("settings put system screen_brightness ${brightness.coerceIn(1, 255)}")
+            isScreenDimmed = false
             brightnessBeforeScreenOff = null
         } catch (e: Exception) {
             Log.w(TAG, "Unable to restore screen brightness: ${e.message}")
@@ -1312,7 +1365,7 @@ class ScrcpyManager(
 
     suspend fun sendTap(x: Int, y: Int) = withContext(Dispatchers.IO) {
         val stream = controlStream
-        if (stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
+        if (!usesShellTouchInput() && stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
             val (devW, devH) = getDeviceResolution()
             val now = SystemClock.uptimeMillis()
             sendTouchEvent(MotionEvent.ACTION_DOWN, x, y, devW, devH, 0L, 1, now)
@@ -1320,12 +1373,13 @@ class ScrcpyManager(
             sendTouchEvent(MotionEvent.ACTION_UP, x, y, devW, devH, 0L, 0, now + 40)
             return@withContext
         }
+        prepareShellTouch()
         adbClient.executeShell("input tap $x $y")
     }
 
     suspend fun sendSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int = 250) = withContext(Dispatchers.IO) {
         val stream = controlStream
-        if (stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
+        if (!usesShellTouchInput() && stream != null && !stream.isClosed() && serverVideoWidth > 0 && serverVideoHeight > 0) {
             val (devW, devH) = getDeviceResolution()
             val start = SystemClock.uptimeMillis()
             sendTouchEvent(MotionEvent.ACTION_DOWN, x1, y1, devW, devH, 0L, 1, start)
@@ -1340,14 +1394,15 @@ class ScrcpyManager(
             sendTouchEvent(MotionEvent.ACTION_UP, x2, y2, devW, devH, 0L, 0, start + durationMs)
             return@withContext
         }
+        prepareShellTouch()
         adbClient.executeShell("input swipe $x1 $y1 $x2 $y2 $durationMs")
+        if (remoteSdkVersion >= 34) kotlinx.coroutines.delay(300)
     }
 
     suspend fun sendKey(keyCode: Int) = withContext(Dispatchers.IO) {
         val stream = controlStream
         if (stream != null && !stream.isClosed()) {
             try {
-                // scrcpy 1.18 INJECT_KEYCODE 报文: 14 字节
                 val downBuf = ByteBuffer.allocate(14)
                 downBuf.put(0.toByte()) // TYPE_INJECT_KEYCODE = 0
                 downBuf.put(0.toByte()) // ACTION_DOWN = 0
@@ -1384,32 +1439,30 @@ class ScrcpyManager(
         if (stream != null && !stream.isClosed()) {
             try {
                 val textBytes = text.toByteArray(Charsets.UTF_8)
-                val buf = ByteBuffer.allocate(1 + 1 + 4 + textBytes.size)
-                buf.put(9.toByte()) // TYPE_SET_CLIPBOARD = 9
+                val sequence = clipboardSequence++
+                val buf = ByteBuffer.allocate(1 + 8 + 1 + 4 + textBytes.size)
+                buf.put(9.toByte())
+                buf.putLong(sequence)
                 buf.put(if (paste) 1.toByte() else 0.toByte())
                 buf.putInt(textBytes.size)
                 buf.put(textBytes)
+                val ack = CompletableDeferred<Boolean>()
+                clipboardAckDeferred = ack
                 controlQueue.offer(buf.array())
-                Log.i(TAG, "Sent clipboard to device via scrcpy control (size=${textBytes.size}, paste=$paste)")
-                return@withContext true
+                val confirmed = withTimeoutOrNull(3000) { ack.await() } == true
+                clipboardAckDeferred = null
+                if (confirmed) {
+                    _deviceClipboard.set(text)
+                    Log.i(TAG, "Clipboard write acknowledged by scrcpy server")
+                    return@withContext true
+                }
+                Log.w(TAG, "Clipboard write was not acknowledged")
             } catch (e: Exception) {
+                clipboardAckDeferred = null
                 Log.w(TAG, "Failed to send clipboard via scrcpy control stream: ${e.message}")
             }
         }
-
-        // 降级兜底方案：ADB Shell cmd clipboard set-text
-        try {
-            val escaped = text.replace("'", "'\\''")
-            adbClient.executeShell("cmd clipboard set-text '$escaped'")
-            if (paste) {
-                adbClient.executeShell("input keyevent 279") // KEYCODE_PASTE
-            }
-            Log.i(TAG, "Set clipboard via adb shell fallback")
-            return@withContext true
-        } catch (e: Exception) {
-            Log.w(TAG, "Fallback set clipboard failed: ${e.message}")
-            return@withContext false
-        }
+        false
     }
 
     /**
@@ -1421,7 +1474,7 @@ class ScrcpyManager(
             try {
                 val deferred = CompletableDeferred<String>()
                 getClipboardDeferred = deferred
-                controlQueue.offer(byteArrayOf(8.toByte())) // TYPE_GET_CLIPBOARD = 8
+                controlQueue.offer(byteArrayOf(8.toByte(), 0.toByte())) // TYPE_GET_CLIPBOARD, COPY_KEY_NONE
                 val result = withTimeoutOrNull(1500) {
                     deferred.await()
                 }
@@ -1434,18 +1487,7 @@ class ScrcpyManager(
                 getClipboardDeferred = null
             }
         }
-
-        // 降级兜底方案：ADB Shell cmd clipboard get-text
-        try {
-            val out = adbClient.executeShell("cmd clipboard get-text")
-            val trimmed = out.trimEnd('\r', '\n')
-            if (trimmed.isNotEmpty()) {
-                _deviceClipboard.set(trimmed)
-                return@withContext trimmed
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Fallback get clipboard failed: ${e.message}")
-        }
+        // Android 14 shell clipboard commands are unavailable.
         return@withContext _deviceClipboard.get().ifEmpty { null }
     }
 }
