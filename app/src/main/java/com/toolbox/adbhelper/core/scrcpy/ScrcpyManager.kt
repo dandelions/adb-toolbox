@@ -279,11 +279,9 @@ class ScrcpyManager(
     private fun ensureServerPushed(): Boolean {
         try {
             val localCache = java.io.File(context.cacheDir, "scrcpy-server.jar")
-            if (!localCache.exists() || localCache.length() == 0L) {
-                context.assets.open("scrcpy-server.jar").use { input ->
-                    localCache.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+            context.assets.open("scrcpy-server.jar").use { input ->
+                localCache.outputStream().use { output ->
+                    input.copyTo(output)
                 }
             }
             val expectedSize = localCache.length()
@@ -1317,6 +1315,11 @@ class ScrcpyManager(
         }
 
         // Android 14 may reject the legacy scrcpy SurfaceControl call without reporting an ack.
+        if (remoteSdkVersion >= 34 && refreshSecureKeyguardState()) {
+            Log.i(TAG, "Keeping Android 14 screen visible while secure keyguard is showing")
+            return@withContext
+        }
+
         try {
             val currentBrightness = adbClient.executeShell("settings get system screen_brightness")
                 .trim().toIntOrNull()

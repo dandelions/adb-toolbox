@@ -529,13 +529,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         val localX: Float
         val localY: Float
-        if (view == displayView) {
+        val mappedWidth = targetW.toFloat()
+        val mappedHeight = targetH.toFloat()
+        if (view == binding.flScreenContainer) {
+            val displayLocation = IntArray(2)
+            val containerLocation = IntArray(2)
+            displayView.getLocationOnScreen(displayLocation)
+            binding.flScreenContainer.getLocationOnScreen(containerLocation)
+            localX = touchX - (displayLocation[0] - containerLocation[0])
+            localY = touchY - (displayLocation[1] - containerLocation[1])
+        } else {
             localX = touchX
             localY = touchY
-        } else {
-            // view 为 flScreenContainer，displayView 为其居中子 View
-            localX = touchX - displayView.left
-            localY = touchY - displayView.top
         }
 
         val dw = displayView.width.toFloat()
@@ -545,8 +550,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val normX = (localX / dw).coerceIn(0f, 1f)
         val normY = (localY / dh).coerceIn(0f, 1f)
 
-        val targetX = (normX * (targetW - 1)).toInt().coerceIn(0, targetW - 1)
-        val targetY = (normY * (targetH - 1)).toInt().coerceIn(0, targetH - 1)
+        val targetX = (normX * (mappedWidth - 1)).toInt().coerceIn(0, targetW - 1)
+        val targetY = (normY * (mappedHeight - 1)).toInt().coerceIn(0, targetH - 1)
         return Pair(targetX, targetY)
     }
 
@@ -1235,9 +1240,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} ${config.maxFps}fps")
 
                     if (config.turnScreenOff && !isScreenOff) {
-                        isScreenOff = true
                         lifecycleScope.launch(Dispatchers.IO) {
-                            scrcpyManager?.turnScreenOff()
+                            val manager = scrcpyManager ?: return@launch
+                            manager.syncLockScreenState()
+                            if (!manager.isSecureLockScreenShowing()) {
+                                manager.turnScreenOff()
+                                isScreenOff = true
+                            }
                         }
                     }
 
