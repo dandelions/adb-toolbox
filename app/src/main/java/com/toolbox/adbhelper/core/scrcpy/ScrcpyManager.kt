@@ -62,6 +62,8 @@ class ScrcpyManager(
     private var controlThread: Thread? = null
     @Volatile
     private var controlReaderThread: Thread? = null
+    @Volatile
+    private var keyguardKeepAliveThread: Thread? = null
     private val _deviceClipboard = java.util.concurrent.atomic.AtomicReference<String>("")
     val lastDeviceClipboard: String get() = _deviceClipboard.get()
     @Volatile
@@ -329,6 +331,7 @@ class ScrcpyManager(
 
         currentSurface = surface
         isSurfaceReady = surface.isValid
+        startKeyguardKeepAlive()
 
         val (targetW, targetH) = calculateTargetSize(deviceW, deviceH, config.maxSize, localW, localH)
         val bitrate = if (config.bitRate > 0) config.bitRate else 4_000_000
@@ -747,6 +750,7 @@ class ScrcpyManager(
      */
     fun stopVideoStream() {
         if (!isStreaming.getAndSet(false)) return
+        stopKeyguardKeepAlive()
         isSurfaceReady = false
         currentSurface = null
 
@@ -1124,6 +1128,47 @@ class ScrcpyManager(
         return isSecureKeyguardShowing
     }
 
+    /**
+     * Android 14 的锁屏窗口带有约 7 秒的用户活动超时，未充电时 svc power stayon 不生效，
+     * 密码键盘出现后只要短暂无人操作，设备就会变暗并熄屏，投屏随之黑屏。
+     * 锁屏期间只注入唤醒键来重置该计时，不会解锁设备，也不影响正在输入的密码。
+     */
+    private fun startKeyguardKeepAlive() {
+        if (keyguardKeepAliveThread?.isAlive == true) return
+        keyguardKeepAliveThread = Thread({
+            try {
+                if (remoteSdkVersion <= 0) {
+                    remoteSdkVersion = adbClient.executeShell("getprop ro.build.version.sdk")
+                        .trim().toIntOrNull() ?: 0
+                }
+                while (isStreaming.get() && !Thread.currentThread().isInterrupted) {
+                    if (usesShellTouchInput()) {
+                        refreshSecureKeyguardState()
+                        if (isSecureKeyguardShowing) {
+                            adbClient.executeShell("input keyevent 224", 3000)
+                            Log.d(TAG, "Reset lock-screen user-activity timer")
+                        }
+                    }
+                    Thread.sleep(3000)
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.d(TAG, "Keyguard keep-alive stopped: ${e.message}")
+            }
+        }, "ScrcpyKeyguardKeepAlive").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun stopKeyguardKeepAlive() {
+        val thread = keyguardKeepAliveThread
+        keyguardKeepAliveThread = null
+        try {
+            thread?.interrupt()
+        } catch (_: Exception) {}
+    }
+
     private fun enqueueShellInput(command: String) {
         shellInputExecutor.execute {
             try {
@@ -1317,8 +1362,10 @@ class ScrcpyManager(
 
         if (remoteSdkVersion >= 34) {
             refreshSecureKeyguardState()
-            Log.i(TAG, "Android 14 screen-off request ignored to keep lock-screen input visible")
-            return@withContext false
+            if (isSecureKeyguardShowing) {
+                Log.i(TAG, "Screen-off skipped: secure keyguard input must stay visible")
+                return@withContext false
+            }
         }
 
         try {

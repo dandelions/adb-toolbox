@@ -1243,12 +1243,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     binding.tvStreamStatus.visibility = View.GONE
                     updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} ${config.maxFps}fps")
 
+                    // Keep the Android 14 lock screen awake while PIN or pattern input is available.
+                    // turnScreenOff() refuses while a secure keyguard is showing and reports whether it ran.
                     if (config.turnScreenOff && !isScreenOff) {
                         lifecycleScope.launch(Dispatchers.IO) {
                             val manager = scrcpyManager ?: return@launch
                             manager.syncLockScreenState()
-                            if (!manager.isSecureLockScreenShowing()) {
-                                manager.turnScreenOff()
+                            if (!manager.isSecureLockScreenShowing() && manager.turnScreenOff()) {
                                 isScreenOff = true
                             }
                         }
