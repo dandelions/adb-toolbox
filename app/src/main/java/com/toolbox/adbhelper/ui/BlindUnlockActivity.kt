@@ -27,7 +27,8 @@ class BlindUnlockActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private var sending = false
 
-    private companion object {
+    companion object {
+        const val EXTRA_SWIPE_FIRST = "swipe_first"
         private const val MAX_PIN_LENGTH = 16
         private const val KEYCODE_0 = 7
         private const val KEYCODE_DEL = 67
@@ -35,12 +36,20 @@ class BlindUnlockActivity : AppCompatActivity() {
         private const val KEYCODE_WAKEUP = 224
     }
 
+    private var swipeFirst = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_blind_unlock)
 
         tvDots = findViewById(R.id.tvPinDots)
         tvStatus = findViewById(R.id.tvBlindStatus)
+        swipeFirst = intent.getBooleanExtra(EXTRA_SWIPE_FIRST, true)
+        if (!swipeFirst) {
+            findViewById<android.widget.TextView>(R.id.tvBlindTitle).text = "验证密码"
+            findViewById<android.widget.TextView>(R.id.tvBlindHint).text =
+                "当前页面禁止采集画面（例如安装应用、修改安全设置时的密码验证）。此处输入的数字会用 ADB 按键盲发到被控设备。"
+        }
         val grid = findViewById<GridLayout>(R.id.gridKeypad)
 
         val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓")
@@ -136,7 +145,7 @@ class BlindUnlockActivity : AppCompatActivity() {
                 client.executeShell("input keyevent $KEYCODE_WAKEUP", 3000)
                 delay(250)
                 // 锁屏壁纸状态下滑出密码键盘，否则数字会被直接丢弃
-                if (isSecureKeyguardShowing(client)) {
+                if (swipeFirst && isSecureKeyguardShowing(client)) {
                     val (width, height) = deviceSize(client)
                     client.executeShell(
                         "input swipe ${width / 2} ${(height * 0.90).toInt()} ${width / 2} ${(height * 0.40).toInt()} 300",

@@ -31,6 +31,21 @@ class ScrcpyManager(
 ) {
     companion object {
         private const val TAG = "ScrcpyManager"
+
+        /** 焦点窗口命中这些标记时，说明系统正在要求输入锁屏/账号密码 */
+        private val CREDENTIAL_PROMPT_TOKENS = listOf(
+            "ConfirmDeviceCredential",
+            "ConfirmCredential",
+            "ConfirmLockPattern",
+            "ConfirmLockPassword",
+            "KeyguardPin",
+            "KeyguardPassword",
+            "KeyguardPattern",
+            "VerifyCredential",
+            "SetOrConfirmCredentials",
+            "ChooseLockPassword",
+            "ChooseLockPattern"
+        )
     }
 
     fun updateAdbClient(newClient: AdbClient) {
@@ -58,6 +73,8 @@ class ScrcpyManager(
     private var screenOffRequested: Boolean = false
     @Volatile
     private var displayPowerOffConfirmed: Boolean = false
+    @Volatile
+    private var isCredentialPromptShowing: Boolean = false
     @Volatile
     private var shellDownX: Int = 0
     @Volatile
@@ -1142,6 +1159,26 @@ class ScrcpyManager(
         return isSecureKeyguardShowing
     }
 
+    fun isCredentialPromptVisible(): Boolean = isCredentialPromptShowing
+
+    /**
+     * 系统级密码弹窗（安装应用、修改安全设置等）同样禁止采集，
+     * 通过当前焦点窗口识别这类页面，交给盲输界面处理。
+     */
+    private fun detectCredentialPrompt(): Boolean {
+        return try {
+            val focus = adbClient.executeShell(
+                "dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -n 4",
+                4000
+            )
+            if (focus.isBlank()) return false
+            CREDENTIAL_PROMPT_TOKENS.any { focus.contains(it, ignoreCase = true) }
+        } catch (e: Exception) {
+            Log.d(TAG, "Detect credential prompt failed: ${e.message}")
+            false
+        }
+    }
+
     /**
      * Android 14 的锁屏窗口带有约 7 秒的用户活动超时，未充电时 svc power stayon 不生效，
      * 密码键盘出现后只要短暂无人操作，设备就会变暗并熄屏，投屏随之黑屏。
@@ -1157,6 +1194,7 @@ class ScrcpyManager(
                 }
                 while (isStreaming.get() && !Thread.currentThread().isInterrupted) {
                     refreshSecureKeyguardState()
+                    isCredentialPromptShowing = if (isSecureKeyguardShowing) false else detectCredentialPrompt()
                     if (!screenOffRequested && (isSecureKeyguardShowing || !isDeviceScreenOn)) {
                         adbClient.executeShell("input keyevent 224", 3000)
                         isDeviceScreenOn = true
@@ -1430,22 +1468,35 @@ class ScrcpyManager(
 
         // 与 Android 10 相同的路径：直接关闭显示电源，屏幕硬件真正熄灭但合成继续，投屏不受影响
         displayPowerOffConfirmed = false
-        if (setDisplayPowerMode(0)) {
-            // 以服务端日志 "Device display turned off" 作为成功依据，dumpsys 的 screenState 不会反映该状态
-            var waited = 0
-            while (waited < 2000 && !displayPowerOffConfirmed) {
-                kotlinx.coroutines.delay(100)
-                waited += 100
-            }
-            if (displayPowerOffConfirmed) {
-                screenOffRequested = true
-                Log.i(TAG, "Display powered off while mirroring continues")
-                return@withContext true
-            }
-            setDisplayPowerMode(2)
-            Log.w(TAG, "Display power-off not confirmed, falling back to dimming")
+        val powerOffSent = setDisplayPowerMode(0)
+        if (powerOffSent) {
+            kotlinx.coroutines.delay(900)
+            Log.i(
+                TAG,
+                "Display power-off requested (logConfirmed=$displayPowerOffConfirmed, stateOff=${isDisplayStateOff()})"
+            )
+        } else {
+            Log.w(TAG, "Control channel unavailable for display power-off, dimming only")
         }
-        return@withContext applyBrightnessDim()
+
+        // 双保险：面板关闭 + 亮度压暗，避免任一条通路失效时仍有亮光
+        val dimmed = applyBrightnessDim()
+        screenOffRequested = true
+        return@withContext powerOffSent || dimmed
+    }
+
+    /** 直接读取显示面板状态，显示电源关闭后 dumpsys 会变为 state OFF */
+    private fun isDisplayStateOff(): Boolean {
+        return try {
+            val out = adbClient.executeShell(
+                "dumpsys display 2>/dev/null | grep -m1 mBaseDisplayInfo",
+                3000
+            )
+            out.contains("state OFF")
+        } catch (e: Exception) {
+            Log.w(TAG, "Read display state failed: ${e.message}")
+            false
+        }
     }
 
     /**

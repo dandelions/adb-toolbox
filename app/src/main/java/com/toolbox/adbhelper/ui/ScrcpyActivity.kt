@@ -889,7 +889,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun maybeOpenBlindUnlock() {
         val manager = scrcpyManager ?: return
         if (!isActivityResumed || isActivityStopped) return
-        if (!manager.isSecureLockScreenShowing()) {
+        val locked = manager.isSecureLockScreenShowing()
+        val credentialPrompt = manager.isCredentialPromptVisible()
+        if (!locked && !credentialPrompt) {
             blindUnlockShown = false
             blindUnlockDismissed = false
             return
@@ -898,15 +900,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (!isLockGuardActive()) return
         if (blindUnlockShown) return
         blindUnlockShown = true
-        showBlindUnlockDialog()
+        // 锁屏需要用上划唤出键盘；系统密码弹窗本身已聚焦，直接输入即可
+        showBlindUnlockDialog(swipeFirst = locked)
     }
 
     /** 刚解锁后的短暂窗口内不再触发密码页，等待锁屏状态刷新 */
     private fun isLockGuardActive(): Boolean =
         android.os.SystemClock.uptimeMillis() >= lockGuardSuppressedUntil
 
-    private fun showBlindUnlockDialog() {
-        blindUnlockLauncher.launch(android.content.Intent(this, BlindUnlockActivity::class.java))
+    private fun showBlindUnlockDialog(swipeFirst: Boolean = true) {
+        val intent = android.content.Intent(this, BlindUnlockActivity::class.java)
+            .putExtra(BlindUnlockActivity.EXTRA_SWIPE_FIRST, swipeFirst)
+        blindUnlockLauncher.launch(intent)
     }
 
     override fun onStart() {
