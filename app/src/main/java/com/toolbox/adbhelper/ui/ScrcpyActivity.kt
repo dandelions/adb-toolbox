@@ -900,6 +900,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (!isLockGuardActive()) return
         if (blindUnlockShown) return
         blindUnlockShown = true
+        Log.i("ScrcpyActivity", "Open blind unlock page (locked=$locked, credentialPrompt=$credentialPrompt)")
         // 锁屏需要用上划唤出键盘；系统密码弹窗本身已聚焦，直接输入即可
         showBlindUnlockDialog(swipeFirst = locked)
     }
@@ -947,8 +948,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         lockBannerJob?.cancel()
         lockBannerJob = lifecycleScope.launch {
             while (isActive && isActivityResumed) {
+                // 状态刷新放在界面侧，保证截图兼容模式或流中断时也能及时发现锁屏/密码弹窗
+                withContext(Dispatchers.IO) {
+                    try {
+                        scrcpyManager?.syncLockScreenState()
+                    } catch (_: Exception) {}
+                }
                 maybeOpenBlindUnlock()
-                delay(2000)
+                delay(1500)
             }
         }
     }

@@ -1269,6 +1269,7 @@ class ScrcpyManager(
         remoteSdkVersion = adbClient.executeShell("getprop ro.build.version.sdk")
             .trim().toIntOrNull() ?: 0
         refreshSecureKeyguardState()
+        isCredentialPromptShowing = if (isSecureKeyguardShowing) false else detectCredentialPrompt()
     }
 
     private fun setDisplayPowerMode(mode: Int): Boolean {
