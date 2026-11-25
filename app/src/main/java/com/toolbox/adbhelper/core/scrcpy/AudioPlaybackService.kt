@@ -53,11 +53,8 @@ class AudioPlaybackService : Service {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, AudioPlaybackService::class.java).apply {
-                action = ACTION_STOP
-            }
             try {
-                context.startService(intent)
+                context.stopService(Intent(context, AudioPlaybackService::class.java))
             } catch (_: Exception) {}
         }
     }
@@ -70,6 +67,11 @@ class AudioPlaybackService : Service {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        } catch (e: Exception) {
+            Log.w(TAG, "onCreate startForeground 失败: ${e.message}")
+        }
         acquireLocks()
         isServiceRunning = true
     }

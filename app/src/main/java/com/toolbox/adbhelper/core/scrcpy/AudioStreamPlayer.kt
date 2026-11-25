@@ -29,7 +29,12 @@ class AudioStreamPlayer(private val context: Context) {
     private var serverStream: AdbStream? = null
     private var audioStream: AdbStream? = null
     private var playbackThread: Thread? = null
-    private var lastAdbClient: AdbClient? = null
+    private var connectionWatchdogThread: Thread? = null
+    private var boundClient: AdbClient? = null
+    private var disconnectListener: (() -> Unit)? = null
+
+    @Volatile
+    private var lastActivityTimeMs: Long = 0L
 
     @Volatile
     var audioGain: Float = 1.0f
@@ -65,6 +70,10 @@ class AudioStreamPlayer(private val context: Context) {
 
     fun isPlaying(): Boolean = isPlaying.get()
 
+    fun isPlayingFor(client: AdbClient?): Boolean {
+        return isPlaying.get() && client != null && boundClient === client && client.isConnected
+    }
+
     /**
      * 动态设置被控机外放静音/恢复（遵循用户需求，不强制篡改系统物理音量）
      */
@@ -82,9 +91,26 @@ class AudioStreamPlayer(private val context: Context) {
         gain: Float = 1.0f,
         muteDevice: Boolean = false
     ) = withContext(Dispatchers.IO) {
-        if (isPlaying.get()) return@withContext
-        isPlaying.set(true)
-        lastAdbClient = adbClient
+        if (!adbClient.isConnected) {
+            onStatus?.invoke("远程连接已断开，本地声音已停止", true)
+            return@withContext
+        }
+        if (isPlaying.getAndSet(true)) return@withContext
+
+        boundClient = adbClient
+        lastActivityTimeMs = System.currentTimeMillis()
+        val listener: () -> Unit = {
+            Log.i(TAG, "检测到 ADB 连接断开，立即停止本地音频播放")
+            stopInternal("远程连接已断开，本地声音已停止", true)
+        }
+        disconnectListener = listener
+        adbClient.connection.addDisconnectListener(listener)
+
+        if (!isPlaying.get() || !adbClient.isConnected) {
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return@withContext
+        }
+
         this@AudioStreamPlayer.audioQualityMode = qualityMode
         this@AudioStreamPlayer.audioGain = gain
 
@@ -99,10 +125,13 @@ class AudioStreamPlayer(private val context: Context) {
             startAudioForwarder(adbClient, audioSource)
 
         } catch (e: Exception) {
-            val err = "音频转发启动失败: ${e.message}"
+            val err = if (!adbClient.isConnected) {
+                "远程连接已断开，本地声音已停止"
+            } else {
+                "音频转发启动失败: ${e.message}"
+            }
             Log.e(TAG, err, e)
-            onStatus?.invoke(err, true)
-            stop()
+            stopInternal(err, true)
         }
     }
 
@@ -115,14 +144,20 @@ class AudioStreamPlayer(private val context: Context) {
         // 1. 优先尝试直连已有服务 (若被控端已有 Sndcpy 正在运行或等待连接中，则无需重新拉起弹窗)
         var stream: AdbStream? = null
         for (i in 1..8) {
-            if (!isPlaying.get()) break
+            if (!isPlaying.get() || !adbClient.isConnected) break
             try {
                 stream = adbClient.connection.openStream("localabstract:sndcpy", 1200)
                 Log.i(TAG, "检测到对端已有 Sndcpy 等待连接中，直连握手成功！")
                 break
             } catch (_: Exception) {
+                if (!isPlaying.get() || !adbClient.isConnected) break
                 Thread.sleep(150)
             }
+        }
+
+        if (!isPlaying.get() || !adbClient.isConnected) {
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return
         }
 
         // 2. 若未直连成功，则确保环境就绪并拉起服务与等待授权
@@ -133,6 +168,10 @@ class AudioStreamPlayer(private val context: Context) {
                 onStatus?.invoke("正在向被控端安装 Sndcpy 录音组件...", false)
                 val installSuccess = installSndcpyApk(adbClient)
                 if (!installSuccess) {
+                    if (!isPlaying.get() || !adbClient.isConnected) {
+                        stopInternal("远程连接已断开，本地声音已停止", true)
+                        return
+                    }
                     onStatus?.invoke("Sndcpy 组件安装失败，正在切换至免安装系统内录...", false)
                     startAudioForwarder(adbClient, 0)
                     return
@@ -147,24 +186,35 @@ class AudioStreamPlayer(private val context: Context) {
                 adbClient.executeShell("cmd appops set $SNDCPY_PACKAGE RECORD_AUDIO allow 2>/dev/null")
             } catch (_: Exception) {}
 
+            if (!isPlaying.get() || !adbClient.isConnected) {
+                stopInternal("远程连接已断开，本地声音已停止", true)
+                return
+            }
+
             // 启动 Sndcpy 捕获服务
             onStatus?.invoke("正在唤醒 Sndcpy 服务 (若屏幕弹出录屏/录音授权请点击允许)...", false)
             adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
 
             // 经典充裕时间轮询等待连接 localabstract:sndcpy
             for (i in 1..40) {
-                if (!isPlaying.get()) break
+                if (!isPlaying.get() || !adbClient.isConnected) break
                 try {
                     stream = adbClient.connection.openStream("localabstract:sndcpy", 1200)
                     Log.i(TAG, "Sndcpy 服务已成功连接！")
                     break
                 } catch (_: Exception) {
+                    if (!isPlaying.get() || !adbClient.isConnected) break
                     if (i % 4 == 0) {
                         onStatus?.invoke("等待 Sndcpy 授权握手 (${i / 4}s/10s，若有弹窗请点击允许)...", false)
                     }
                     Thread.sleep(250)
                 }
             }
+        }
+
+        if (!isPlaying.get() || !adbClient.isConnected) {
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return
         }
 
         // 3. 若最终仍未连上 Sndcpy，平滑自动降级至免安装免弹窗的系统原生内录，杜绝中断报错
@@ -239,13 +289,17 @@ class AudioStreamPlayer(private val context: Context) {
         serverStream = try {
             adbClient.connection.openStream("shell:$serverCmd", 5000)
         } catch (e: Exception) {
-            val err = "启动对端音频服务进程失败: ${e.message}"
+            val err = if (!adbClient.isConnected) {
+                "远程连接已断开，本地声音已停止"
+            } else {
+                "启动对端音频服务进程失败: ${e.message}"
+            }
             Log.w(TAG, err)
-            onStatus?.invoke(err, true)
-            stop()
+            stopInternal(err, true)
             return
         }
 
+        val serverExited = AtomicBoolean(false)
         val sStream = serverStream
         if (sStream != null) {
             Thread({
@@ -253,28 +307,46 @@ class AudioStreamPlayer(private val context: Context) {
                     val reader = sStream.inputStream.bufferedReader()
                     while (isPlaying.get()) {
                         val line = reader.readLine() ?: break
+                        lastActivityTimeMs = System.currentTimeMillis()
                         Log.d(TAG, "[AudioForwarder] $line")
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                } finally {
+                    serverExited.set(true)
+                    if (isPlaying.get() && audioStream != null) {
+                        try {
+                            Thread.sleep(200)
+                        } catch (_: InterruptedException) {}
+                        if (isPlaying.get()) {
+                            val disconnected = !adbClient.isConnected
+                            val msg = if (disconnected) "远程连接已断开，本地声音已停止" else "远程音频服务已断开，本地声音已停止"
+                            stopInternal(msg, true)
+                        }
+                    }
+                }
             }, "AudioServerLogThread").apply { isDaemon = true; start() }
         }
 
         var stream: AdbStream? = null
         for (i in 0 until 30) {
-            if (!isPlaying.get()) break
+            if (!isPlaying.get() || !adbClient.isConnected || serverExited.get()) break
             try {
                 stream = adbClient.connection.openStream("localabstract:scrcpy_audio", 800)
                 break
             } catch (_: Exception) {
+                if (!isPlaying.get() || !adbClient.isConnected || serverExited.get()) break
                 Thread.sleep(100)
             }
         }
 
         if (stream == null) {
-            val err = "无法连接对端音频管道 (scrcpy_audio)"
+            val err = if (!adbClient.isConnected) {
+                "远程连接已断开，本地声音已停止"
+            } else {
+                "无法连接对端音频管道 (scrcpy_audio)"
+            }
             Log.w(TAG, err)
-            onStatus?.invoke(err, true)
-            stop()
+            stopInternal(err, true)
             return
         }
         audioStream = stream
@@ -286,6 +358,11 @@ class AudioStreamPlayer(private val context: Context) {
      * 初始化 AudioTrack 并启动消费线程 (经典高稳定直通模式)
      */
     private fun initAudioTrackAndPlay(stream: AdbStream, successMessage: String) {
+        if (!isPlaying.get() || boundClient?.isConnected != true) {
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return
+        }
+
         val minBufSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING)
         // 经典稳定缓冲大小 (4倍最小缓冲，最少8192字节)
         val bufferSize = (minBufSize * 4).coerceAtLeast(8192)
@@ -321,12 +398,32 @@ class AudioStreamPlayer(private val context: Context) {
         }
 
         audioTrack = track
+        if (!isPlaying.get() || boundClient?.isConnected != true) {
+            audioTrack = null
+            try { track.release() } catch (_: Exception) {}
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return
+        }
         track.play()
+        lastActivityTimeMs = System.currentTimeMillis()
         Log.i(TAG, "AudioTrack 初始化成功，开始实时播放")
         onStatus?.invoke(successMessage, false)
 
         // 启动系统级前台保活服务与唤醒锁，确保按 Home 键切后台后音频持续播放不中断
         AudioPlaybackService.start(context)
+
+        if (!isPlaying.get() || boundClient?.isConnected != true) {
+            try { AudioPlaybackService.stop(context) } catch (_: Exception) {}
+            audioTrack = null
+            try { track.pause() } catch (_: Exception) {}
+            try { track.flush() } catch (_: Exception) {}
+            try { track.stop() } catch (_: Exception) {}
+            try { track.release() } catch (_: Exception) {}
+            stopInternal("远程连接已断开，本地声音已停止", true)
+            return
+        }
+
+        startConnectionWatchdog()
 
         playbackThread = Thread({
             val buffer = ByteArray(4096)
@@ -338,8 +435,9 @@ class AudioStreamPlayer(private val context: Context) {
                 while (isPlaying.get()) {
                     val read = input.read(buffer, 0, buffer.size)
                     if (read > 0) {
-                        val maxAmp = getMaxAmplitude(buffer, 0, read)
                         val now = System.currentTimeMillis()
+                        lastActivityTimeMs = now
+                        val maxAmp = getMaxAmplitude(buffer, 0, read)
 
                         if (maxAmp > 40) {
                             lastActiveSoundTime = now
@@ -354,6 +452,7 @@ class AudioStreamPlayer(private val context: Context) {
                             }
                         }
 
+                        if (!isPlaying.get()) break
                         track.write(buffer, 0, read)
                         totalBytesReceived += read
 
@@ -363,13 +462,20 @@ class AudioStreamPlayer(private val context: Context) {
                         }
                     } else if (read < 0) {
                         Log.i(TAG, "音频输入流已到达 EOF")
+                        val disconnected = boundClient?.isConnected != true
+                        val msg = if (disconnected) {
+                            "远程连接已断开，本地声音已停止"
+                        } else {
+                            "远程音频流已断开，本地声音已停止"
+                        }
+                        stopInternal(msg, disconnected)
                         break
                     }
                 }
             } catch (e: Exception) {
                 if (isPlaying.get()) {
                     Log.w(TAG, "音频流读取异常: ${e.message}")
-                    onStatus?.invoke("音频流中断: ${e.message}", true)
+                    stopInternal("音频流中断: ${e.message}", true)
                 }
             } finally {
                 stop()
@@ -377,6 +483,75 @@ class AudioStreamPlayer(private val context: Context) {
         }, "AudioPlaybackThread").apply {
             priority = Thread.MAX_PRIORITY
             start()
+        }
+    }
+
+    private fun startConnectionWatchdog() {
+        connectionWatchdogThread?.interrupt()
+        connectionWatchdogThread = Thread({
+            var consecutiveProbeFailures = 0
+            try {
+                while (isPlaying.get() && !Thread.currentThread().isInterrupted) {
+                    Thread.sleep(1000)
+                    if (!isPlaying.get()) break
+
+                    val client = boundClient
+                    if (client == null || !client.isConnected) {
+                        Log.i(TAG, "看门狗检测到 ADB 连接已断开，停止本地音频播放")
+                        stopInternal("远程连接已断开，本地声音已停止", true)
+                        break
+                    }
+
+                    val idleMs = System.currentTimeMillis() - lastActivityTimeMs
+                    if (idleMs >= 3500L) {
+                        val alive = probeConnectionAlive(client)
+                        if (alive) {
+                            lastActivityTimeMs = System.currentTimeMillis()
+                            consecutiveProbeFailures = 0
+                        } else if (!client.isConnected) {
+                            Log.i(TAG, "探针检测到 ADB 连接已断开，停止本地音频播放")
+                            stopInternal("远程连接已断开，本地声音已停止", true)
+                            break
+                        } else {
+                            consecutiveProbeFailures++
+                            Log.w(TAG, "远程连接保活探针无响应 ($consecutiveProbeFailures/2)")
+                            if (consecutiveProbeFailures >= 2) {
+                                Log.w(TAG, "远程连接超时无响应，关闭连接并停止本地音频播放")
+                                try {
+                                    client.connection.close()
+                                } catch (_: Exception) {}
+                                stopInternal("远程连接已断开，本地声音已停止", true)
+                                break
+                            }
+                        }
+                    } else {
+                        consecutiveProbeFailures = 0
+                    }
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.d(TAG, "音频连接看门狗退出: ${e.message}")
+            }
+        }, "AudioConnectionWatchdog").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun probeConnectionAlive(client: AdbClient): Boolean {
+        return try {
+            val probeStream = client.connection.openStream("shell:true", 1500)
+            try {
+                probeStream.read(200)
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    probeStream.close()
+                } catch (_: Exception) {}
+            }
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -399,22 +574,45 @@ class AudioStreamPlayer(private val context: Context) {
      * 停止音频播放并释放资源
      */
     fun stop() {
+        stopInternal(null, false)
+    }
+
+    private fun stopInternal(statusMessage: String?, isError: Boolean) {
         if (!isPlaying.getAndSet(false)) return
 
+        val wasSoundActive = isSoundActive
         isSoundActive = false
         lastActiveSoundTime = 0L
+        if (wasSoundActive) {
+            try {
+                onSoundActiveChanged?.invoke(false)
+            } catch (_: Exception) {}
+        }
+
+        val client = boundClient
+        val listener = disconnectListener
+        boundClient = null
+        disconnectListener = null
+        if (client != null && listener != null) {
+            try {
+                client.connection.removeDisconnectListener(listener)
+            } catch (_: Exception) {}
+        }
 
         try {
             AudioPlaybackService.stop(context)
         } catch (_: Exception) {}
 
+        val track = audioTrack
+        audioTrack = null
         try {
-            audioTrack?.let {
-                it.stop()
-                it.release()
+            track?.let {
+                try { it.pause() } catch (_: Exception) {}
+                try { it.flush() } catch (_: Exception) {}
+                try { it.stop() } catch (_: Exception) {}
+                try { it.release() } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
-        audioTrack = null
 
         try {
             audioStream?.close()
@@ -426,8 +624,18 @@ class AudioStreamPlayer(private val context: Context) {
         } catch (_: Exception) {}
         serverStream = null
 
+        connectionWatchdogThread?.interrupt()
+        connectionWatchdogThread = null
+
         playbackThread?.interrupt()
         playbackThread = null
+
+        if (statusMessage != null) {
+            try {
+                onStatus?.invoke(statusMessage, isError)
+            } catch (_: Exception) {}
+        }
+
         Log.i(TAG, "音频转发已停止并安全释放")
     }
 

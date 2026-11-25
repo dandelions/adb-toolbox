@@ -206,6 +206,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                 }
             }
+            onConnectionDisconnected = {
+                runOnUiThread {
+                    updateAudioDiag("远程连接已断开，音频已停止", true)
+                    if (!isActivityStopped && !isReconnecting) {
+                        updateDiagBar("#F44336", "连接已断开")
+                        triggerAutoReconnect(force = true)
+                    }
+                }
+            }
         }
 
         AudioPlaybackService.onServiceStopRequested = {
@@ -928,8 +937,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         bgSilenceMonitorJob?.cancel()
         bgSilenceMonitorJob = null
 
-        // 若此前因后台无声断开过音频，或音频未播放但配置开启，切回前台时自动无感恢复音频通道
-        if (config.enableAudio && scrcpyManager?.isAudioPlaying() != true) {
+        // 若此前因后台无声断开过音频，或音频未播放但配置开启，仅在连接有效时恢复音频通道
+        val activeClient = DeviceManager.adbClient
+        if (activeClient != null && activeClient.isConnected && config.enableAudio && scrcpyManager?.isAudioPlaying() != true) {
             wasAudioInterruptedByBgSilence = false
             scrcpyManager?.startAudioStream(
                 audioSource = config.audioSource,
@@ -1009,7 +1019,21 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val bgStartTime = System.currentTimeMillis()
             while (isActive && isActivityStopped) {
                 delay(1000)
-                if (scrcpyManager?.isAudioPlaying() != true) break
+                if (DeviceManager.adbClient?.isConnected != true) {
+                    Log.i("ScrcpyActivity", "后台检测到远程 ADB 连接已断开，停止本地音频与推流")
+                    withContext(Dispatchers.Main) {
+                        stopStreaming(keepAudioIfPlaying = false)
+                    }
+                    break
+                }
+                if (scrcpyManager?.isAudioPlaying() != true) {
+                    withContext(Dispatchers.Main) {
+                        if (isActivityStopped) {
+                            stopStreaming(keepAudioIfPlaying = false)
+                        }
+                    }
+                    break
+                }
 
                 // 用户配置为从不断开 (<= 0) 时，保持后台音频传输，不触发无声自动断开
                 if (config.silenceTimeoutMs <= 0L) {
@@ -1128,7 +1152,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (isReconnecting || isActivityStopped) return
         isReconnecting = true
 
-        stopStreaming(keepAudioIfPlaying = true)
+        stopStreaming(keepAudioIfPlaying = false)
+        updateAudioDiag("连接已断开，音频已停止", true)
         binding.surfaceView.visibility = View.VISIBLE
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
@@ -1523,6 +1548,18 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         }
                     }
                 } else {
+                    val client = DeviceManager.adbClient
+                    if (client == null || !client.isConnected) {
+                        withContext(Dispatchers.Main) {
+                            if (!isActivityStopped && isActivityResumed) {
+                                updateDiagBar("#F44336", "连接已断开")
+                                triggerAutoReconnect(force = true)
+                            } else {
+                                stopStreaming(keepAudioIfPlaying = false)
+                            }
+                        }
+                        break
+                    }
                     consecutiveFailures++
                     val lastErr = mgr.getLastCaptureError()
                     withContext(Dispatchers.Main) {
@@ -2022,5 +2059,6 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             } catch (_: Exception) {}
         }
         stopStreaming()
+        scrcpyManager?.release()
     }
 }

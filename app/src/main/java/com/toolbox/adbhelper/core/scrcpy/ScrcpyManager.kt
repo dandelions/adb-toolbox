@@ -48,8 +48,33 @@ class ScrcpyManager(
         )
     }
 
+    var onConnectionDisconnected: (() -> Unit)? = null
+
+    private val connectionDisconnectListener: () -> Unit = {
+        Log.i(TAG, "ADB 连接已断开，停止本地音频与推流")
+        stopAudioStream()
+        stopVideoStream()
+        try {
+            onConnectionDisconnected?.invoke()
+        } catch (_: Exception) {}
+    }
+
+    init {
+        adbClient.connection.addDisconnectListener(connectionDisconnectListener)
+    }
+
     fun updateAdbClient(newClient: AdbClient) {
-        this.adbClient = newClient
+        val oldClient = this.adbClient
+        if (oldClient !== newClient) {
+            try {
+                oldClient.connection.removeDisconnectListener(connectionDisconnectListener)
+            } catch (_: Exception) {}
+            if (audioPlayer?.isPlaying() == true && audioPlayer?.isPlayingFor(newClient) != true) {
+                stopAudioStream()
+            }
+            this.adbClient = newClient
+            newClient.connection.addDisconnectListener(connectionDisconnectListener)
+        }
     }
 
     private val isStreaming = AtomicBoolean(false)
@@ -98,6 +123,7 @@ class ScrcpyManager(
     var onDeviceClipboardChanged: ((String) -> Unit)? = null
     private var mediaCodec: MediaCodec? = null
     private var audioPlayer: AudioStreamPlayer? = null
+    private val audioLock = Any()
     @Volatile
     private var isSurfaceReady = false
     private var currentSurface: Surface? = null
@@ -723,7 +749,7 @@ class ScrcpyManager(
     /**
      * 停止屏幕流
      */
-    fun isAudioPlaying(): Boolean = audioPlayer?.isPlaying() == true
+    fun isAudioPlaying(): Boolean = audioPlayer?.isPlaying() == true && adbClient.isConnected
 
     fun isSoundActive(): Boolean = audioPlayer?.isSoundActive == true
 
@@ -748,15 +774,24 @@ class ScrcpyManager(
         gain: Float = 1.0f,
         muteDevice: Boolean = false
     ) {
-        audioPlayer?.stop()
+        val client = adbClient
+        if (!client.isConnected) {
+            stopAudioStream()
+            onAudioStatus?.invoke("远程连接已断开，本地声音已停止", true)
+            return
+        }
+        val player = synchronized(audioLock) {
+            audioPlayer?.stop()
+            AudioStreamPlayer(context).also {
+                it.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
+                it.onSoundActiveChanged = { active -> onSoundActiveChanged?.invoke(active) }
+                audioPlayer = it
+            }
+        }
         Thread({
             try {
-                val player = AudioStreamPlayer(context)
-                player.onStatus = { msg, isErr -> onAudioStatus?.invoke(msg, isErr) }
-                player.onSoundActiveChanged = { active -> onSoundActiveChanged?.invoke(active) }
-                audioPlayer = player
                 kotlinx.coroutines.runBlocking {
-                    player.start(adbClient, audioSource, qualityMode, gain, muteDevice)
+                    player.start(client, audioSource, qualityMode, gain, muteDevice)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Audio player launch error: ${e.message}")
@@ -769,10 +804,14 @@ class ScrcpyManager(
      * 停止音频流
      */
     fun stopAudioStream() {
+        val player = synchronized(audioLock) {
+            val p = audioPlayer
+            audioPlayer = null
+            p
+        }
         try {
-            audioPlayer?.stop()
+            player?.stop()
         } catch (_: Exception) {}
-        audioPlayer = null
     }
 
     /**
@@ -825,8 +864,16 @@ class ScrcpyManager(
      * 停止全部推流（视频与音频）
      */
     fun stopStream() {
-        stopVideoStream()
         stopAudioStream()
+        stopVideoStream()
+    }
+
+    fun release() {
+        try {
+            adbClient.connection.removeDisconnectListener(connectionDisconnectListener)
+        } catch (_: Exception) {}
+        onConnectionDisconnected = null
+        stopStream()
     }
 
     /**

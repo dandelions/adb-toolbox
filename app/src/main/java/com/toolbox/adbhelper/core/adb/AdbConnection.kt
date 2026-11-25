@@ -36,6 +36,27 @@ class AdbConnection(
 
     var onAuthPrompt: (() -> Unit)? = null
     var onDisconnect: (() -> Unit)? = null
+    private val disconnectListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addDisconnectListener(listener: () -> Unit) {
+        if (isClosed.get()) {
+            try {
+                listener()
+            } catch (_: Exception) {}
+            return
+        }
+        disconnectListeners.addIfAbsent(listener)
+        if (isClosed.get()) {
+            disconnectListeners.remove(listener)
+            try {
+                listener()
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun removeDisconnectListener(listener: () -> Unit) {
+        disconnectListeners.remove(listener)
+    }
 
     fun isConnected(): Boolean = isConnected.get() && !isClosed.get()
 
@@ -289,6 +310,12 @@ class AdbConnection(
             try {
                 onDisconnect?.invoke()
             } catch (_: Exception) {}
+            disconnectListeners.forEach { listener ->
+                try {
+                    listener()
+                } catch (_: Exception) {}
+            }
+            disconnectListeners.clear()
         }
     }
 }
