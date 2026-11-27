@@ -1,5 +1,7 @@
 package com.toolbox.adbhelper.core.adb
 
+import com.toolbox.adbhelper.App
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.model.AppItem
 import com.toolbox.adbhelper.core.model.DeviceInfo
 import com.toolbox.adbhelper.core.model.FileItem
@@ -81,11 +83,11 @@ class AdbClient(val connection: AdbConnection) {
                     info.batteryTemp = if (t > 100) t / 10f else t
                 } else if (trim.startsWith("status:")) {
                     info.batteryStatus = when (trim.substringAfter("status:").trim()) {
-                        "2" -> "正在充电"
-                        "3" -> "放电中"
-                        "4" -> "未充电"
-                        "5" -> "充满"
-                        else -> "正常"
+                        "2" -> App.instance.getString(R.string.battery_charging)
+                        "3" -> App.instance.getString(R.string.battery_discharging)
+                        "4" -> App.instance.getString(R.string.battery_not_charging)
+                        "5" -> App.instance.getString(R.string.battery_full)
+                        else -> App.instance.getString(R.string.battery_normal)
                     }
                 }
             }

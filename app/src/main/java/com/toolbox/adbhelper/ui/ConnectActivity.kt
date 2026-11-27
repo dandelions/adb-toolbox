@@ -106,7 +106,7 @@ class ConnectActivity : AppCompatActivity() {
 
             val (ip, port) = parseIpAndPort(rawIp, rawPort)
             if (ip.isEmpty()) {
-                Toast.makeText(this, "请输入正确的设备 IP", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.invalid_ip, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
@@ -134,15 +134,15 @@ class ConnectActivity : AppCompatActivity() {
             val bitrate = scrcpyPrefs.getInt(KEY_SCRCPY_BITRATE, 4_000_000)
             val timeout = scrcpyPrefs.getLong(KEY_SCRCPY_SILENCE_TIMEOUT, 120_000L)
             val resStr = when (size) {
-                0 -> "原画"
-                1920 -> "1080P"
-                1280 -> "720P"
-                854 -> "480P"
+                0 -> getString(R.string.preset_resolution_original)
+                1920 -> getString(R.string.preset_resolution_1080)
+                1280 -> getString(R.string.preset_resolution_720)
+                854 -> getString(R.string.preset_resolution_480)
                 else -> "${size}P"
             }
             val bitStr = "${bitrate / 1_000_000}M"
             val timeoutStr = ScrcpyPresets.getSilenceTimeoutShortLabel(timeout)
-            binding.tvCurrentPresetHint.text = "已预设: $resStr / $bitStr / $timeoutStr"
+            binding.tvCurrentPresetHint.text = getString(R.string.preset_summary, resStr, bitStr, timeoutStr)
         }
 
         val resLabels = ScrcpyPresets.RESOLUTION_OPTIONS.map { it.label }
@@ -231,8 +231,8 @@ class ConnectActivity : AppCompatActivity() {
     private fun connectWifiDevice(ip: String, port: Int) {
         binding.btnConnectWifi.isEnabled = false
         binding.tvWifiStatus.visibility = View.VISIBLE
-        binding.tvWifiStatus.text = "正在连接目标设备 [$ip:$port]..."
-        binding.btnConnectWifi.text = "正在连接中..."
+        binding.tvWifiStatus.text = getString(R.string.connecting_device, ip, port)
+        binding.btnConnectWifi.setText(R.string.connecting)
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -242,7 +242,7 @@ class ConnectActivity : AppCompatActivity() {
 
                 conn.onAuthPrompt = {
                     lifecycleScope.launch(Dispatchers.Main) {
-                        binding.tvWifiStatus.text = "已发起连接请求！\n请在目标设备屏幕上查看授权弹窗，并点击【始终允许】"
+                        binding.tvWifiStatus.text = getString(R.string.auth_request)
                     }
                 }
 
@@ -259,17 +259,17 @@ class ConnectActivity : AppCompatActivity() {
                 saveHistoryDevice("$ip:$port")
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@ConnectActivity, "连接成功！", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ConnectActivity, R.string.connection_success, Toast.LENGTH_SHORT).show()
                     finish()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     binding.btnConnectWifi.isEnabled = true
-                    binding.btnConnectWifi.text = "连接无线设备"
+                    binding.btnConnectWifi.setText(R.string.connect_wireless_device)
                     binding.tvWifiStatus.visibility = View.VISIBLE
-                    binding.tvWifiStatus.text = e.message ?: "连接失败"
-                    Toast.makeText(this@ConnectActivity, "连接失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    binding.tvWifiStatus.text = e.message ?: getString(R.string.connection_failed, "Unknown error")
+                    Toast.makeText(this@ConnectActivity, getString(R.string.connection_failed, e.message), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -320,16 +320,16 @@ class ConnectActivity : AppCompatActivity() {
             binding.tvUsbDevices.text = "未检测到已连接的 USB OTG 设备。\n请插入 OTG 线并开启被控端 USB 调试。"
         } else {
             val target = targets.first()
-            val modeName = if (target.isFastboot) "Fastboot 模式" else "ADB 模式"
-            binding.tvUsbDevices.text = "发现设备: ${target.device.deviceName} (Vendor: ${target.device.vendorId}, $modeName)"
+            val modeName = getString(if (target.isFastboot) R.string.fastboot_mode else R.string.adb_mode)
+            binding.tvUsbDevices.text = getString(R.string.device_found, target.device.deviceName, target.device.vendorId, modeName)
 
             if (!usbHelper.hasPermission(target.device)) {
-                binding.btnScanUsb.text = "请求 USB 权限并连接"
+                binding.btnScanUsb.setText(R.string.request_usb_connect)
                 binding.btnScanUsb.setOnClickListener {
                     usbHelper.requestPermission(target.device)
                 }
             } else {
-                binding.btnScanUsb.text = "连接该 USB 设备"
+                binding.btnScanUsb.setText(R.string.connect_usb_device)
                 binding.btnScanUsb.setOnClickListener {
                     connectUsbDevice(target)
                 }
@@ -342,7 +342,7 @@ class ConnectActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val transport = usbHelper.openConnection(target)
-                    ?: throw java.io.IOException("无法打开 USB 接口连接")
+                    ?: throw java.io.IOException(getString(R.string.usb_open_interface_failed))
 
                 val crypto = AdbCrypto.loadOrGenerate(this@ConnectActivity)
                 val conn = AdbConnection(transport, crypto)
@@ -357,14 +357,14 @@ class ConnectActivity : AppCompatActivity() {
                 DeviceManager.recordConnection(client, device, this@ConnectActivity)
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@ConnectActivity, "USB OTG 连接成功！", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ConnectActivity, R.string.usb_connected, Toast.LENGTH_SHORT).show()
                     finish()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     binding.btnScanUsb.isEnabled = true
-                    Toast.makeText(this@ConnectActivity, "USB 连接失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@ConnectActivity, getString(R.string.usb_connection_failed, e.message), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -377,7 +377,7 @@ class ConnectActivity : AppCompatActivity() {
                 AdbCrypto.loadOrGenerate(this@ConnectActivity)
                 val (privFile, pubFile) = AdbCrypto.getKeyFiles(this@ConnectActivity)
                 if (!privFile.exists() || !pubFile.exists()) {
-                    throw IllegalStateException("未找到本机 ADB 密钥文件")
+                    throw IllegalStateException(getString(R.string.adb_key_missing))
                 }
 
                 contentResolver.openOutputStream(uri)?.use { os ->
@@ -394,15 +394,15 @@ class ConnectActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     AlertDialog.Builder(this@ConnectActivity)
-                        .setTitle("导出备份成功")
-                        .setMessage("ADB 认证密钥已成功保存到指定位置！\n如之后卸载应用或在其他设备安装，导入该备份文件即可继承配对授权，无需对端重新确认。")
-                        .setPositiveButton("好的", null)
+                        .setTitle(R.string.export_backup_title)
+                        .setMessage(R.string.export_backup_message)
+                        .setPositiveButton(R.string.good, null)
                         .show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@ConnectActivity, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@ConnectActivity, getString(R.string.export_failed, e.message), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -436,25 +436,25 @@ class ConnectActivity : AppCompatActivity() {
                 }
 
                 if (privBytes == null || pubBytes == null) {
-                    throw IllegalArgumentException("压缩包中未包含有效的 adbkey 与 adbkey.pub")
+                    throw IllegalArgumentException(getString(R.string.invalid_key_backup))
                 }
 
                 val ok = AdbCrypto.saveKeyPair(this@ConnectActivity, privBytes!!, pubBytes!!)
                 if (!ok) {
-                    throw IllegalStateException("解析或校验导入的 RSA 密钥失败")
+                    throw IllegalStateException(getString(R.string.invalid_key_pair))
                 }
 
                 withContext(Dispatchers.Main) {
                     AlertDialog.Builder(this@ConnectActivity)
-                        .setTitle("导入密钥成功")
-                        .setMessage("已恢复 ADB 配对公私钥！\n现在连接此前已授权过的对端设备，将直接认证通过，无需重新在对端确认授权弹窗。")
-                        .setPositiveButton("确定", null)
+                        .setTitle(R.string.import_backup_title)
+                        .setMessage(R.string.import_keys_message)
+                        .setPositiveButton(R.string.confirm, null)
                         .show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@ConnectActivity, "导入失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@ConnectActivity, getString(R.string.import_failed, e.message), Toast.LENGTH_LONG).show()
                 }
             }
         }

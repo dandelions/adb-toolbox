@@ -7,6 +7,8 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
+import com.toolbox.adbhelper.App
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.adb.AdbClient
 import com.toolbox.adbhelper.core.adb.AdbStream
 import kotlinx.coroutines.Dispatchers
@@ -92,7 +94,7 @@ class AudioStreamPlayer(private val context: Context) {
         muteDevice: Boolean = false
     ) = withContext(Dispatchers.IO) {
         if (!adbClient.isConnected) {
-            onStatus?.invoke("远程连接已断开，本地声音已停止", true)
+            onStatus?.invoke(App.instance.getString(R.string.audio_remote_disconnected), true)
             return@withContext
         }
         if (isPlaying.getAndSet(true)) return@withContext
@@ -126,9 +128,9 @@ class AudioStreamPlayer(private val context: Context) {
 
         } catch (e: Exception) {
             val err = if (!adbClient.isConnected) {
-                "远程连接已断开，本地声音已停止"
+                App.instance.getString(R.string.audio_remote_disconnected)
             } else {
-                "音频转发启动失败: ${e.message}"
+                App.instance.getString(R.string.audio_forward_start_failed, e.message)
             }
             Log.e(TAG, err, e)
             stopInternal(err, true)
@@ -139,7 +141,7 @@ class AudioStreamPlayer(private val context: Context) {
      * 通过 Sndcpy 伴侣应用捕获纯系统声音 (Android 10+)
      */
     private suspend fun startSndcpy(adbClient: AdbClient) {
-        onStatus?.invoke("准备 Sndcpy 系统内录组件...", false)
+        onStatus?.invoke(App.instance.getString(R.string.audio_prepare_sndcpy), false)
 
         // 1. 优先尝试直连已有服务 (若被控端已有 Sndcpy 正在运行或等待连接中，则无需重新拉起弹窗)
         var stream: AdbStream? = null
@@ -165,14 +167,14 @@ class AudioStreamPlayer(private val context: Context) {
             // 检查被控端是否已安装 Sndcpy APK，未安装则自动无感安装
             val checkInstalled = adbClient.executeShell("pm path $SNDCPY_PACKAGE 2>/dev/null")
             if (!checkInstalled.contains("package:")) {
-                onStatus?.invoke("正在向被控端安装 Sndcpy 录音组件...", false)
+                onStatus?.invoke(App.instance.getString(R.string.audio_install_sndcpy), false)
                 val installSuccess = installSndcpyApk(adbClient)
                 if (!installSuccess) {
                     if (!isPlaying.get() || !adbClient.isConnected) {
                         stopInternal("远程连接已断开，本地声音已停止", true)
                         return
                     }
-                    onStatus?.invoke("Sndcpy 组件安装失败，正在切换至免安装系统内录...", false)
+                    onStatus?.invoke(App.instance.getString(R.string.audio_sndcpy_install_failed), false)
                     startAudioForwarder(adbClient, 0)
                     return
                 }
@@ -192,7 +194,7 @@ class AudioStreamPlayer(private val context: Context) {
             }
 
             // 启动 Sndcpy 捕获服务
-            onStatus?.invoke("正在唤醒 Sndcpy 服务 (若屏幕弹出录屏/录音授权请点击允许)...", false)
+            onStatus?.invoke(App.instance.getString(R.string.audio_start_sndcpy), false)
             adbClient.executeShell("am start -n $SNDCPY_PACKAGE/.MainActivity 2>/dev/null")
 
             // 经典充裕时间轮询等待连接 localabstract:sndcpy
@@ -205,7 +207,7 @@ class AudioStreamPlayer(private val context: Context) {
                 } catch (_: Exception) {
                     if (!isPlaying.get() || !adbClient.isConnected) break
                     if (i % 4 == 0) {
-                        onStatus?.invoke("等待 Sndcpy 授权握手 (${i / 4}s/10s，若有弹窗请点击允许)...", false)
+                        onStatus?.invoke(App.instance.getString(R.string.audio_wait_sndcpy, i / 4), false)
                     }
                     Thread.sleep(250)
                 }
@@ -220,7 +222,7 @@ class AudioStreamPlayer(private val context: Context) {
         // 3. 若最终仍未连上 Sndcpy，平滑自动降级至免安装免弹窗的系统原生内录，杜绝中断报错
         if (stream == null) {
             Log.w(TAG, "未能连接 Sndcpy 服务 (被控端未确认弹窗或超时)，平滑自动降级至原生免弹窗系统内录")
-            onStatus?.invoke("Sndcpy 授权未就绪，已平滑切换至免弹窗系统内录...", false)
+            onStatus?.invoke(App.instance.getString(R.string.audio_sndcpy_fallback), false)
             startAudioForwarder(adbClient, 0)
             return
         }
@@ -261,15 +263,15 @@ class AudioStreamPlayer(private val context: Context) {
      * 免安装模式：通过 app-helper.jar 的 AudioForwarder 服务
      */
     private suspend fun startAudioForwarder(adbClient: AdbClient, audioSource: Int) {
-        onStatus?.invoke("正在准备音频转发组件...", false)
+        onStatus?.invoke(App.instance.getString(R.string.audio_prepare_forwarder), false)
         ensureHelperPushed(context, adbClient)
 
         val modeName = when (audioSource) {
-            1 -> "麦克风 (MIC)"
-            2 -> "语音识别"
-            else -> "自动 (系统内录优先)"
+            1 -> App.instance.getString(R.string.audio_mode_mic)
+            2 -> App.instance.getString(R.string.audio_mode_voice)
+            else -> App.instance.getString(R.string.audio_mode_auto)
         }
-        onStatus?.invoke("启动对端音频服务 [$modeName]...", false)
+        onStatus?.invoke(App.instance.getString(R.string.audio_start_remote, modeName), false)
 
         try {
             adbClient.executeShell("pkill -9 -f com.toolbox.adbhelper.server.AudioForwarder 2>/dev/null")
@@ -290,9 +292,9 @@ class AudioStreamPlayer(private val context: Context) {
             adbClient.connection.openStream("shell:$serverCmd", 5000)
         } catch (e: Exception) {
             val err = if (!adbClient.isConnected) {
-                "远程连接已断开，本地声音已停止"
+                App.instance.getString(R.string.audio_remote_disconnected)
             } else {
-                "启动对端音频服务进程失败: ${e.message}"
+                App.instance.getString(R.string.audio_service_start_failed, e.message)
             }
             Log.w(TAG, err)
             stopInternal(err, true)
@@ -319,7 +321,7 @@ class AudioStreamPlayer(private val context: Context) {
                         } catch (_: InterruptedException) {}
                         if (isPlaying.get()) {
                             val disconnected = !adbClient.isConnected
-                            val msg = if (disconnected) "远程连接已断开，本地声音已停止" else "远程音频服务已断开，本地声音已停止"
+                            val msg = if (disconnected) App.instance.getString(R.string.audio_remote_disconnected) else App.instance.getString(R.string.audio_stopped)
                             stopInternal(msg, true)
                         }
                     }
@@ -341,9 +343,9 @@ class AudioStreamPlayer(private val context: Context) {
 
         if (stream == null) {
             val err = if (!adbClient.isConnected) {
-                "远程连接已断开，本地声音已停止"
+                App.instance.getString(R.string.audio_remote_disconnected)
             } else {
-                "无法连接对端音频管道 (scrcpy_audio)"
+                App.instance.getString(R.string.audio_pipe_failed)
             }
             Log.w(TAG, err)
             stopInternal(err, true)
@@ -351,7 +353,7 @@ class AudioStreamPlayer(private val context: Context) {
         }
         audioStream = stream
 
-        initAudioTrackAndPlay(stream, "音频已连接 (48kHz 双声道低延迟)")
+        initAudioTrackAndPlay(stream, App.instance.getString(R.string.audio_connected_quality))
     }
 
     /**
@@ -458,7 +460,7 @@ class AudioStreamPlayer(private val context: Context) {
 
                         if (!hasNotifiedFirstData && totalBytesReceived >= 4096) {
                             hasNotifiedFirstData = true
-                            onStatus?.invoke("声音传输中 (已接收数据流)", false)
+                            onStatus?.invoke(App.instance.getString(R.string.audio_stream_active), false)
                         }
                     } else if (read < 0) {
                         Log.i(TAG, "音频输入流已到达 EOF")

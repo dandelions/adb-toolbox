@@ -12,7 +12,7 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/surface"
         app:navigationIcon="?attr/homeAsUpIndicator"
-        app:title="文件管理"
+        app:title="@string/file_manager_title"
         app:titleTextColor="@color/text_primary">
 
         <ImageButton
@@ -22,7 +22,7 @@
             android:layout_gravity="end"
             android:layout_marginEnd="8dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="排序"
+            android:contentDescription="@string/sort_file_accessibility"
             android:src="@drawable/ic_sort"
             app:tint="@color/text_primary" />
 
@@ -83,7 +83,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:text="名称 ↑"
+                android:text="@string/sort_name_up"
                 android:textColor="@color/primary"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -161,7 +161,7 @@
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:text="上传到此目录" />
+            android:text="@string/upload_here" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnNewFolder"
@@ -169,7 +169,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="新建文件夹" />
+            android:text="@string/new_folder_action" />
 
     </LinearLayout>
 

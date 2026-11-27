@@ -5,6 +5,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.databinding.ActivityTerminalBinding
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +68,7 @@ class TerminalActivity : AppCompatActivity() {
             val client = DeviceManager.getOrReconnectClient(this@TerminalActivity)
             if (client == null) {
                 appendOutput("Error: ADB 设备未连接或重连失败\n$ ")
-                Toast.makeText(this@TerminalActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@TerminalActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 

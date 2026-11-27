@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.FileItem
 import com.toolbox.adbhelper.databinding.ActivityFileManagerBinding
@@ -33,13 +34,13 @@ class FileManagerActivity : AppCompatActivity() {
     private lateinit var adapter: FileAdapter
     private var currentSortOrder: FileSortOrder = FileSortOrder.NAME_ASC
 
-    enum class FileSortOrder(val title: String, val shortLabel: String) {
-        NAME_ASC("按名称升序 (A → Z)", "名称 ↑"),
-        NAME_DESC("按名称降序 (Z → A)", "名称 ↓"),
-        SIZE_DESC("按大小降序 (由大到小)", "大小 ↓"),
-        SIZE_ASC("按大小升序 (由小到大)", "大小 ↑"),
-        TIME_DESC("按修改时间降序 (最新优先)", "时间 ↓"),
-        TIME_ASC("按修改时间升序 (最旧优先)", "时间 ↑");
+    enum class FileSortOrder(val titleRes: Int, val shortLabelRes: Int) {
+        NAME_ASC(R.string.sort_name_asc, R.string.sort_name_up),
+        NAME_DESC(R.string.sort_name_desc, R.string.sort_name_down),
+        SIZE_DESC(R.string.sort_size_desc, R.string.sort_size_down),
+        SIZE_ASC(R.string.sort_size_asc, R.string.sort_size_up),
+        TIME_DESC(R.string.sort_time_desc, R.string.sort_time_down),
+        TIME_ASC(R.string.sort_time_asc, R.string.sort_time_up);
 
         companion object {
             fun fromOrdinal(ordinal: Int): FileSortOrder {
@@ -132,7 +133,7 @@ class FileManagerActivity : AppCompatActivity() {
     }
 
     private fun updateSortLabel() {
-        binding.tvSortLabel.text = currentSortOrder.shortLabel
+        binding.tvSortLabel.setText(currentSortOrder.shortLabelRes)
     }
 
     private fun parseFileDate(dateStr: String): Long {
@@ -183,10 +184,10 @@ class FileManagerActivity : AppCompatActivity() {
     }
 
     private fun showSortDialog() {
-        val options = FileSortOrder.values().map { it.title }.toTypedArray()
+        val options = FileSortOrder.values().map { getString(it.titleRes) }.toTypedArray()
         val currentIndex = currentSortOrder.ordinal
         MaterialAlertDialogBuilder(this)
-            .setTitle("文件排序方式")
+            .setTitle(R.string.file_sort_title)
             .setSingleChoiceItems(options, currentIndex) { dialog, which ->
                 val selected = FileSortOrder.fromOrdinal(which)
                 if (selected != currentSortOrder) {
@@ -197,7 +198,7 @@ class FileManagerActivity : AppCompatActivity() {
                 }
                 dialog.dismiss()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -210,7 +211,7 @@ class FileManagerActivity : AppCompatActivity() {
             val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
             if (client == null) {
                 binding.swipeRefresh.isRefreshing = false
-                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FileManagerActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
@@ -222,13 +223,17 @@ class FileManagerActivity : AppCompatActivity() {
                 binding.swipeRefresh.isRefreshing = false
             } catch (e: Exception) {
                 binding.swipeRefresh.isRefreshing = false
-                Toast.makeText(this@FileManagerActivity, "加载目录失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FileManagerActivity, getString(R.string.file_load_failed, e.message), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun showFileOptions(item: FileItem) {
-        val options = arrayOf("下载到本地 (Pull)", "删除该文件 (Delete)", "查看详细路径")
+        val options = arrayOf(
+            getString(R.string.download_local),
+            getString(R.string.delete_file),
+            getString(R.string.view_path)
+        )
         AlertDialog.Builder(this)
             .setTitle(item.name)
             .setItems(options) { _, which ->
@@ -240,7 +245,7 @@ class FileManagerActivity : AppCompatActivity() {
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -259,7 +264,7 @@ class FileManagerActivity : AppCompatActivity() {
 
     private fun downloadFile(item: FileItem) {
         val dialogBinding = DialogDownloadProgressBinding.inflate(layoutInflater)
-        dialogBinding.tvDownloadTitle.text = "正在下载文件"
+        dialogBinding.tvDownloadTitle.setText(R.string.download_file)
         dialogBinding.tvDownloadFileName.text = item.name
 
         val totalBytes = item.size
@@ -272,7 +277,7 @@ class FileManagerActivity : AppCompatActivity() {
             dialogBinding.tvDownloadPercent.text = "0%"
         } else {
             dialogBinding.progressBar.isIndeterminate = true
-            dialogBinding.tvDownloadBytes.text = "正在连接并准备下载..."
+            dialogBinding.tvDownloadBytes.setText(R.string.preparing_download)
             dialogBinding.tvDownloadSpeed.text = ""
             dialogBinding.tvDownloadPercent.text = ""
         }
@@ -283,7 +288,7 @@ class FileManagerActivity : AppCompatActivity() {
         val dialog = MaterialAlertDialogBuilder(this)
             .setView(dialogBinding.root)
             .setCancelable(false)
-            .setNegativeButton("取消下载") { d, _ ->
+            .setNegativeButton(R.string.cancel_download) { d, _ ->
                 isCancelled = true
                 d.dismiss()
             }
@@ -298,7 +303,7 @@ class FileManagerActivity : AppCompatActivity() {
                 if (!isFinishing && !isDestroyed && dialog.isShowing) {
                     try { dialog.dismiss() } catch (_: Exception) {}
                 }
-                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FileManagerActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
@@ -319,7 +324,7 @@ class FileManagerActivity : AppCompatActivity() {
                             totalBytes = totalBytes,
                             onProgress = { downloaded, total ->
                                 if (isCancelled) {
-                                    throw java.io.InterruptedIOException("用户已取消下载")
+                                    throw java.io.InterruptedIOException(getString(R.string.file_download_cancel_reason))
                                 }
                                 val now = System.currentTimeMillis()
                                 val timeSinceSpeed = now - lastSpeedTime
@@ -347,7 +352,7 @@ class FileManagerActivity : AppCompatActivity() {
                                                 dialogBinding.tvDownloadSpeed.text = speedStr
                                             } else {
                                                 dialogBinding.progressBar.isIndeterminate = true
-                                                dialogBinding.tvDownloadBytes.text = "已下载: ${formatFileSize(downloaded)}"
+                                                dialogBinding.tvDownloadBytes.text = getString(R.string.download_size_progress, formatFileSize(downloaded))
                                                 dialogBinding.tvDownloadSpeed.text = speedStr
                                                 dialogBinding.tvDownloadPercent.text = ""
                                             }
@@ -372,9 +377,9 @@ class FileManagerActivity : AppCompatActivity() {
                     try { dialog.dismiss() } catch (_: Exception) {}
                 }
                 if (isCancelled || e is java.io.InterruptedIOException || e is kotlinx.coroutines.CancellationException) {
-                    Toast.makeText(this@FileManagerActivity, "下载已取消", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@FileManagerActivity, R.string.download_cancelled, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@FileManagerActivity, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@FileManagerActivity, getString(R.string.download_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -389,38 +394,38 @@ class FileManagerActivity : AppCompatActivity() {
 
     private fun deleteFile(item: FileItem) {
         AlertDialog.Builder(this)
-            .setTitle("删除确认")
-            .setMessage("确定要永久删除 ${item.name} 吗？")
-            .setPositiveButton("删除") { _, _ ->
+            .setTitle(R.string.delete_confirmation)
+            .setMessage(getString(R.string.file_delete_confirm, item.name))
+            .setPositiveButton(R.string.delete) { _, _ ->
                 lifecycleScope.launch {
                     val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
                     if (client == null) {
-                        Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@FileManagerActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                         return@launch
                     }
                     withContext(Dispatchers.IO) {
                         client.executeShell("rm -rf \"${item.path}\"")
                     }
-                    Toast.makeText(this@FileManagerActivity, "已删除", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@FileManagerActivity, R.string.deleted, Toast.LENGTH_SHORT).show()
                     loadDirectory(currentPath)
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun showNewFolderDialog() {
-        val input = EditText(this).apply { hint = "文件夹名称" }
+        val input = EditText(this).apply { hint = getString(R.string.folder_name) }
         AlertDialog.Builder(this)
-            .setTitle("新建文件夹")
+            .setTitle(R.string.new_folder)
             .setView(input)
-            .setPositiveButton("创建") { _, _ ->
+            .setPositiveButton(R.string.create) { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isNotEmpty()) {
                     lifecycleScope.launch {
                         val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
                         if (client == null) {
-                            Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@FileManagerActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                             return@launch
                         }
                         withContext(Dispatchers.IO) {
@@ -430,17 +435,17 @@ class FileManagerActivity : AppCompatActivity() {
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun uploadFileFromUri(uri: Uri) {
-        Toast.makeText(this, "正在上传文件...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, R.string.uploading_file, Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch {
             val client = DeviceManager.getOrReconnectClient(this@FileManagerActivity)
             if (client == null) {
-                Toast.makeText(this@FileManagerActivity, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FileManagerActivity, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
@@ -458,10 +463,10 @@ class FileManagerActivity : AppCompatActivity() {
                     sync.close()
                     temp.delete()
                 }
-                Toast.makeText(this@FileManagerActivity, "上传成功！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@FileManagerActivity, R.string.upload_success, Toast.LENGTH_SHORT).show()
                 loadDirectory(currentPath)
             } catch (e: Exception) {
-                Toast.makeText(this@FileManagerActivity, "上传失败: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@FileManagerActivity, getString(R.string.upload_failed, e.message), Toast.LENGTH_LONG).show()
             }
         }
     }

@@ -10,7 +10,7 @@
         android:id="@+id/tvDownloadTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="正在下载文件"
+        android:text="@string/download_file"
         android:textColor="@color/text_primary"
         android:textSize="17sp"
         android:textStyle="bold" />

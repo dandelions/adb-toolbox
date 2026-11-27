@@ -12,7 +12,7 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/surface"
         app:navigationIcon="?attr/homeAsUpIndicator"
-        app:title="连接设备"
+        app:title="@string/connect_device_title"
         app:titleTextColor="@color/text_primary" />
 
     <ScrollView
@@ -48,7 +48,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="投屏预设参数"
+                            android:text="@string/mirror_preset_title"
                             android:textColor="@color/text_primary"
                             android:textSize="16sp"
                             android:textStyle="bold" />
@@ -57,7 +57,7 @@
                             android:id="@+id/tvCurrentPresetHint"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="推荐: 720P / 4M"
+                            android:text="@string/recommended_mirror_preset"
                             android:textColor="@color/primary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -66,7 +66,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="在连接设备前预先设定投屏分辨率与码率。开启投屏时将自动采用此配置，弱网环境推荐 720P / 4M。"
+                        android:text="@string/mirror_preset_description"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
@@ -75,7 +75,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="投屏分辨率"
+                        android:text="@string/mirror_resolution"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
@@ -106,7 +106,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="传输码率"
+                        android:text="@string/transfer_bitrate"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
@@ -137,7 +137,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="后台静音断开超时"
+                        android:text="@string/silence_disconnect_timeout"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
@@ -193,7 +193,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="请确保两台设备处于同一WiFi局域网，且对端设备已开启无线调试。\n注意：Android 11+ 无线调试请查看对端显示的5位随机端口（如 38xxx）；旧版网络ADB通常为 5555。"
+                        android:text="@string/wireless_description"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
@@ -201,7 +201,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
-                        android:hint="设备 IP 地址 (支持直接粘贴 192.168.1.100:38421)">
+                        android:hint="@string/ip_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etIpAddress"
@@ -215,7 +215,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:hint="端口号 (默认 5555，Android 11+ 请填实际5位端口)">
+                        android:hint="@string/port_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etPort"
@@ -240,7 +240,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="连接无线设备" />
+                        android:text="@string/connect_wireless_device" />
 
                     <!-- 历史连接记录 -->
                     <TextView
@@ -248,7 +248,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
-                        android:text="历史连接"
+                        android:text="@string/connection_history"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp"
                         android:visibility="gone" />
@@ -290,7 +290,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="使用 OTG 转接头将两台手机连接，并确保对端手机开启了 USB 调试。"
+                        android:text="@string/usb_description"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
@@ -299,7 +299,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="正在扫描接入的 USB 设备..."
+                        android:text="@string/scanning_usb"
                         android:textColor="@color/text_secondary" />
 
                     <com.google.android.material.button.MaterialButton
@@ -308,7 +308,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="刷新并连接 USB 设备" />
+                        android:text="@string/refresh_connect_usb" />
 
                 </LinearLayout>
 
@@ -331,7 +331,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="ADB 配对密钥管理"
+                        android:text="@string/adb_key_management"
                         android:textColor="@color/text_primary"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -340,7 +340,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="导出本机的 ADB 配对公私钥文件，重新安装或换机后可直接导入，无需重新在对端设备授权确认！"
+                        android:text="@string/adb_key_description"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
 
@@ -357,7 +357,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginEnd="6dp"
-                            android:text="备份/导出密钥" />
+                            android:text="@string/export_keys" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnImportKeys"
@@ -366,7 +366,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginStart="6dp"
-                            android:text="恢复/导入密钥" />
+                            android:text="@string/import_keys" />
 
                     </LinearLayout>
 

@@ -1,5 +1,8 @@
 package com.toolbox.adbhelper.core.model
 
+import androidx.annotation.StringRes
+import com.toolbox.adbhelper.App
+import com.toolbox.adbhelper.R
 import java.io.Serializable
 
 enum class ConnectionType {
@@ -87,14 +90,16 @@ data class ScrcpyConfig(
 ) : Serializable
 
 data class ScrcpyOption<T>(
-    val label: String,
+    @StringRes val labelRes: Int,
     val value: T
-)
+) {
+    val label: String get() = App.instance.getString(labelRes)
+}
 
 object ScrcpyPresets {
     val AUDIO_QUALITY_OPTIONS = listOf(
-        ScrcpyOption("高保真音乐模式 (推荐听歌/观影，48kHz大缓冲防抖零爆音)", 0),
-        ScrcpyOption("极速低延迟模式 (游戏控制推荐，约30ms超低延迟)", 1)
+        ScrcpyOption(R.string.preset_quality_hifi, 0),
+        ScrcpyOption(R.string.preset_quality_low_latency, 1)
     )
 
     fun getAudioQualityLabel(mode: Int): String {
@@ -102,10 +107,10 @@ object ScrcpyPresets {
     }
 
     val AUDIO_GAIN_OPTIONS = listOf(
-        ScrcpyOption("1.0x (原始原声)", 1.0f),
-        ScrcpyOption("1.5x (+3.5dB 适度增强)", 1.5f),
-        ScrcpyOption("2.0x (+6.0dB 明显放大，静音听歌推荐)", 2.0f),
-        ScrcpyOption("3.0x (+9.5dB 超强推力放大)", 3.0f)
+        ScrcpyOption(R.string.preset_gain_1, 1.0f),
+        ScrcpyOption(R.string.preset_gain_15, 1.5f),
+        ScrcpyOption(R.string.preset_gain_2, 2.0f),
+        ScrcpyOption(R.string.preset_gain_3, 3.0f)
     )
 
     fun getAudioGainLabel(gain: Float): String {
@@ -113,48 +118,49 @@ object ScrcpyPresets {
     }
 
     val AUDIO_SOURCE_OPTIONS = listOf(
-        ScrcpyOption("Sndcpy 高清伴侣系统内录 (推荐，Android 10+ 纯净应用音乐/游戏内录)", 3),
-        ScrcpyOption("免安装系统内录 (免装免弹窗，Android 13+支持/低版本降级MIC)", 0),
-        ScrcpyOption("被控端麦克风 (MIC，采集环境音/扬声器外放)", 1),
-        ScrcpyOption("语音识别音源 (VOICE_RECOGNITION)", 2)
+        ScrcpyOption(R.string.preset_audio_sndcpy, 3),
+        ScrcpyOption(R.string.preset_audio_system, 0),
+        ScrcpyOption(R.string.preset_audio_mic, 1),
+        ScrcpyOption(R.string.preset_audio_voice, 2)
     )
 
     fun getAudioSourceLabel(source: Int): String {
         return AUDIO_SOURCE_OPTIONS.find { it.value == source }?.label ?: AUDIO_SOURCE_OPTIONS[0].label
     }
     val RESOLUTION_OPTIONS = listOf(
-        ScrcpyOption("自动适配本机屏幕 (推荐，等比完整容纳)", -1),
-        ScrcpyOption("720P (标清流畅，等比适配)", 1280),
-        ScrcpyOption("1080P (全高清，等比适配)", 1920),
-        ScrcpyOption("原画 (原生分辨率，不压缩尺寸)", 0),
-        ScrcpyOption("480P (极速低延迟，等比适配)", 854)
+        ScrcpyOption(R.string.preset_resolution_auto, -1),
+        ScrcpyOption(R.string.preset_resolution_720, 1280),
+        ScrcpyOption(R.string.preset_resolution_1080, 1920),
+        ScrcpyOption(R.string.preset_resolution_original, 0),
+        ScrcpyOption(R.string.preset_resolution_480, 854)
     )
 
     val BITRATE_OPTIONS = listOf(
-        ScrcpyOption("4 Mbps (平衡推荐，WiFi优先)", 4_000_000),
-        ScrcpyOption("2 Mbps (低码率，抗丢包低延迟)", 2_000_000),
-        ScrcpyOption("8 Mbps (高清画质，局域网推荐)", 8_000_000),
-        ScrcpyOption("16 Mbps (超清画质，极高码率)", 16_000_000)
+        ScrcpyOption(R.string.preset_bitrate_4, 4_000_000),
+        ScrcpyOption(R.string.preset_bitrate_2, 2_000_000),
+        ScrcpyOption(R.string.preset_bitrate_8, 8_000_000),
+        ScrcpyOption(R.string.preset_bitrate_16, 16_000_000)
     )
 
     val FPS_OPTIONS = listOf(
-        ScrcpyOption("60 FPS (标准流畅，广泛兼容省电)", 60),
-        ScrcpyOption("120 FPS (极速高刷，极致丝滑)", 120),
-        ScrcpyOption("90 FPS (高刷流畅，省电推荐)", 90),
-        ScrcpyOption("30 FPS (省电低功耗)", 30)
+        ScrcpyOption(R.string.preset_fps_60, 60),
+        ScrcpyOption(R.string.preset_fps_120, 120),
+        ScrcpyOption(R.string.preset_fps_90, 90),
+        ScrcpyOption(R.string.preset_fps_30, 30)
     )
 
     val NAV_POSITION_OPTIONS = listOf(
-        ScrcpyOption("底部停靠 (标准推荐)", NavPosition.BOTTOM),
-        ScrcpyOption("顶部停靠", NavPosition.TOP),
-        ScrcpyOption("左侧悬浮停靠", NavPosition.LEFT),
-        ScrcpyOption("右侧悬浮停靠", NavPosition.RIGHT),
-        ScrcpyOption("隐藏控制栏 (完全沉浸)", NavPosition.HIDE)
+        ScrcpyOption(R.string.preset_nav_bottom, NavPosition.BOTTOM),
+        ScrcpyOption(R.string.preset_nav_top, NavPosition.TOP),
+        ScrcpyOption(R.string.preset_nav_left, NavPosition.LEFT),
+        ScrcpyOption(R.string.preset_nav_right, NavPosition.RIGHT),
+        ScrcpyOption(R.string.preset_nav_hide, NavPosition.HIDE)
     )
 
     fun getResolutionLabel(size: Int): String {
         return RESOLUTION_OPTIONS.find { it.value == size }?.label
-            ?: if (size == 0) "原画" else if (size == -1) "自动适配本机屏幕" else "${size}P"
+            ?: if (size == 0) App.instance.getString(R.string.preset_resolution_original)
+            else if (size == -1) App.instance.getString(R.string.preset_resolution_auto) else "${size}P"
     }
 
     fun getBitrateLabel(bitrate: Int): String {
@@ -168,28 +174,30 @@ object ScrcpyPresets {
 
     fun getNavPositionLabel(position: NavPosition): String {
         return NAV_POSITION_OPTIONS.find { it.value == position }?.label
-            ?: "底部停靠"
+            ?: App.instance.getString(R.string.preset_nav_bottom)
     }
 
     val SILENCE_TIMEOUT_OPTIONS = listOf(
-        ScrcpyOption("30 秒 (极速断开省电)", 30_000L),
-        ScrcpyOption("1 分钟 (快速断开)", 60_000L),
-        ScrcpyOption("2 分钟 (默认推荐，防切歌误断)", 120_000L),
-        ScrcpyOption("5 分钟 (适中保活时间)", 300_000L),
-        ScrcpyOption("10 分钟 (超长保活等待)", 600_000L),
-        ScrcpyOption("从不断开 (持续后台音频)", 0L)
+        ScrcpyOption(R.string.preset_timeout_30, 30_000L),
+        ScrcpyOption(R.string.preset_timeout_60, 60_000L),
+        ScrcpyOption(R.string.preset_timeout_120, 120_000L),
+        ScrcpyOption(R.string.preset_timeout_300, 300_000L),
+        ScrcpyOption(R.string.preset_timeout_600, 600_000L),
+        ScrcpyOption(R.string.preset_timeout_never, 0L)
     )
 
     fun getSilenceTimeoutLabel(timeoutMs: Long): String {
         return SILENCE_TIMEOUT_OPTIONS.find { it.value == timeoutMs }?.label
-            ?: if (timeoutMs <= 0L) "从不断开" else if (timeoutMs % 60_000L == 0L) "${timeoutMs / 60_000L} 分钟" else "${timeoutMs / 1000L} 秒"
+            ?: if (timeoutMs <= 0L) App.instance.getString(R.string.preset_timeout_never)
+            else if (timeoutMs % 60_000L == 0L) "${timeoutMs / 60_000L} min"
+            else "${timeoutMs / 1000L} sec"
     }
 
     fun getSilenceTimeoutShortLabel(timeoutMs: Long): String {
         return when {
-            timeoutMs <= 0L -> "静音不断开"
-            timeoutMs % 60_000L == 0L -> "静音${timeoutMs / 60_000L}分"
-            else -> "静音${timeoutMs / 1000L}秒"
+            timeoutMs <= 0L -> App.instance.getString(R.string.preset_timeout_never_short)
+            timeoutMs % 60_000L == 0L -> App.instance.getString(R.string.preset_timeout_minutes_short, timeoutMs / 60_000L)
+            else -> App.instance.getString(R.string.preset_timeout_seconds_short, timeoutMs / 1000L)
         }
     }
 }

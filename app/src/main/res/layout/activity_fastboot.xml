@@ -12,7 +12,7 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/surface"
         app:navigationIcon="?attr/homeAsUpIndicator"
-        app:title="Fastboot 刷机工具箱"
+        app:title="@string/fastboot_toolbox"
         app:titleTextColor="@color/text_primary" />
 
     <ScrollView
@@ -41,7 +41,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Fastboot 模式说明"
+                        android:text="@string/fastboot_mode_info"
                         android:textColor="@color/text_primary"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -50,7 +50,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="请将手机关机，长按「音量减+电源键」进入 Bootloader / Fastboot 界面，再通过 OTG 数据线连接到本设备。"
+                        android:text="@string/fastboot_mode_description"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
@@ -59,7 +59,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="检测并连接 Fastboot 设备" />
+                        android:text="@string/detect_fastboot" />
 
                 </LinearLayout>
 
@@ -82,7 +82,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="常用操作"
+                        android:text="@string/common_operations"
                         android:textColor="@color/text_primary"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -93,7 +93,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="获取设备全部参数 (getvar all)" />
+                        android:text="@string/get_all_vars" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnUnlockBootloader"
@@ -101,7 +101,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="解锁 Bootloader (flashing unlock)" />
+                        android:text="@string/unlock_bootloader" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnRebootSystem"
@@ -109,7 +109,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="重启到系统 (reboot)" />
+                        android:text="@string/reboot_system" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnRebootRecovery"
@@ -117,7 +117,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="重启到 Recovery" />
+                        android:text="@string/reboot_recovery" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnRebootBootloader"
@@ -125,7 +125,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="重启到 Bootloader" />
+                        android:text="@string/reboot_bootloader" />
 
                 </LinearLayout>
 
@@ -137,7 +137,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="8dp"
-                android:text="执行日志"
+                android:text="@string/execution_log"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -150,7 +150,7 @@
                 android:fontFamily="monospace"
                 android:minHeight="120dp"
                 android:padding="12dp"
-                android:text="等待连接 Fastboot 设备...\n"
+                android:text="@string/waiting_fastboot"
                 android:textColor="@color/text_primary"
                 android:textIsSelectable="true"
                 android:textSize="12sp" />

@@ -53,7 +53,7 @@
             android:background="@drawable/bg_tag"
             android:paddingHorizontal="6dp"
             android:paddingVertical="2dp"
-            android:text="第三方"
+            android:text="@string/third_party_apps"
             android:textColor="@color/primary"
             android:textSize="11sp" />
 

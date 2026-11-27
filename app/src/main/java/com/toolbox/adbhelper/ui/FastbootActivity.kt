@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.fastboot.FastbootClient
 import com.toolbox.adbhelper.core.usb.UsbManagerHelper
@@ -57,9 +58,9 @@ class FastbootActivity : AppCompatActivity() {
         binding.btnUnlockBootloader.setOnClickListener {
             checkFastbootAndRun { client ->
                 AlertDialog.Builder(this)
-                    .setTitle("高危警告")
-                    .setMessage("解锁 Bootloader 将会清除设备所有数据并重启！确定要继续吗？")
-                    .setPositiveButton("立即解锁") { _, _ ->
+                    .setTitle(R.string.high_risk_warning)
+                    .setMessage(R.string.unlock_warning)
+                    .setPositiveButton(R.string.unlock_now) { _, _ ->
                         lifecycleScope.launch(Dispatchers.IO) {
                             val res = client.unlockBootloader()
                             withContext(Dispatchers.Main) {
@@ -67,7 +68,7 @@ class FastbootActivity : AppCompatActivity() {
                             }
                         }
                     }
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(R.string.cancel, null)
                     .show()
             }
         }
@@ -110,14 +111,14 @@ class FastbootActivity : AppCompatActivity() {
         val targets = usbHelper.findSupportedDevices()
         val fastbootTarget = targets.firstOrNull { it.isFastboot }
         if (fastbootTarget == null) {
-            Toast.makeText(this, "未发现 Fastboot 设备，请确认已进入 Bootloader 并连接 OTG 线", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, R.string.fastboot_not_found, Toast.LENGTH_LONG).show()
             binding.tvFastbootLog.text = "未检测到处于 Fastboot 模式的设备。\n"
             return
         }
 
         if (!usbHelper.hasPermission(fastbootTarget.device)) {
             usbHelper.requestPermission(fastbootTarget.device)
-            Toast.makeText(this, "正在请求 USB 权限，请在弹窗中允许", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.requesting_usb_permission, Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -125,21 +126,21 @@ class FastbootActivity : AppCompatActivity() {
             try {
                 val usbManager = getSystemService(USB_SERVICE) as UsbManager
                 val conn = usbManager.openDevice(fastbootTarget.device)
-                    ?: throw java.io.IOException("无法打开 USB 设备")
+                    ?: throw java.io.IOException(getString(R.string.fastboot_usb_open_failed))
                 if (!conn.claimInterface(fastbootTarget.iface, true)) {
-                    throw java.io.IOException("无法独占 Fastboot 接口")
+                    throw java.io.IOException(getString(R.string.fastboot_interface_claim_failed))
                 }
                 val client = FastbootClient(conn, fastbootTarget.inEndpoint, fastbootTarget.outEndpoint)
                 DeviceManager.fastbootClient = client
 
                 withContext(Dispatchers.Main) {
                     binding.tvFastbootLog.text = "Fastboot 设备连接成功！\n设备名: ${fastbootTarget.device.deviceName}\n"
-                    Toast.makeText(this@FastbootActivity, "Fastboot 连接成功", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@FastbootActivity, R.string.fastboot_connection_success, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     binding.tvFastbootLog.text = "连接失败: ${e.message}\n"
-                    Toast.makeText(this@FastbootActivity, "连接失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@FastbootActivity, getString(R.string.connection_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -148,7 +149,7 @@ class FastbootActivity : AppCompatActivity() {
     private fun checkFastbootAndRun(action: (FastbootClient) -> Unit) {
         val client = DeviceManager.fastbootClient
         if (client == null) {
-            Toast.makeText(this, "请先连接 Fastboot 设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.connect_fastboot_first, Toast.LENGTH_SHORT).show()
         } else {
             action(client)
         }

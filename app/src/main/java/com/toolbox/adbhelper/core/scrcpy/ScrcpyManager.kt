@@ -10,6 +10,8 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.view.Surface
+import com.toolbox.adbhelper.App
+import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.adb.AdbClient
 import com.toolbox.adbhelper.core.adb.AdbStream
 import com.toolbox.adbhelper.core.model.ScrcpyConfig
@@ -227,10 +229,10 @@ class ScrcpyManager(
     }
 
     fun getPreferredCaptureMethodName(): String = when (preferredCaptureMethod) {
-        1 -> "Exec管道"
-        2 -> "Base64管道"
-        3 -> "临时文件"
-        else -> "自动探测"
+        1 -> App.instance.getString(R.string.capture_exec)
+        2 -> App.instance.getString(R.string.capture_base64)
+        3 -> App.instance.getString(R.string.capture_temp_file)
+        else -> App.instance.getString(R.string.capture_auto)
     }
 
     @Volatile
@@ -374,7 +376,7 @@ class ScrcpyManager(
         onError: (String) -> Unit
     ) {
         if (!surface.isValid) {
-            onError("Surface 显示画布尚未就绪，正切换为兼容模式...")
+            onError(App.instance.getString(R.string.stream_surface_not_ready))
             return
         }
 
@@ -589,7 +591,7 @@ class ScrcpyManager(
                 val framesFed = feedH264ToCodec(inputStream, activeCodec)
 
                 if (isStreaming.get() && (framesFed == 0 || !firstFrameRendered)) {
-                    onError("流式传输未检测到画面数据，已自动切换为稳定截屏模式")
+                    onError(App.instance.getString(R.string.stream_no_frame_fallback))
                 }
 
             } catch (e: Exception) {
@@ -602,7 +604,7 @@ class ScrcpyManager(
                         val errorDetail = e.message?.takeIf { it.isNotBlank() }
                             ?: e.localizedMessage?.takeIf { it.isNotBlank() }
                             ?: e.javaClass.simpleName
-                        onError("流式投屏启动异常 ($errorDetail)，已切换至稳定截屏模式")
+                        onError(App.instance.getString(R.string.stream_start_failed_fallback, errorDetail))
                     }
                 }
             } finally {
@@ -777,7 +779,7 @@ class ScrcpyManager(
         val client = adbClient
         if (!client.isConnected) {
             stopAudioStream()
-            onAudioStatus?.invoke("远程连接已断开，本地声音已停止", true)
+            onAudioStatus?.invoke(App.instance.getString(R.string.audio_remote_disconnected), true)
             return
         }
         val player = synchronized(audioLock) {
@@ -795,7 +797,7 @@ class ScrcpyManager(
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Audio player launch error: ${e.message}")
-                onAudioStatus?.invoke("音频启动异常: ${e.message}", true)
+                onAudioStatus?.invoke(App.instance.getString(R.string.audio_start_error, e.message), true)
             }
         }, "AudioStartThread").start()
     }
@@ -891,7 +893,7 @@ class ScrcpyManager(
             startAudioStream(audioSource, qualityMode, gain, muteDevice)
         } else {
             stopAudioStream()
-            onAudioStatus?.invoke("音频已停止", false)
+            onAudioStatus?.invoke(App.instance.getString(R.string.audio_stopped), false)
         }
     }
 

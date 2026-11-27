@@ -164,8 +164,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             // 切后台恢复或瞬态离线时，异步自动尝试重连，展示加载状态，绝不强行 finish
             binding.pbLoading.visibility = View.VISIBLE
             binding.tvStreamStatus.visibility = View.VISIBLE
-            binding.tvStreamStatus.text = "正在恢复 ADB 设备连接..."
-            updateDiagBar("#FFB300", "正在恢复 ADB 连接...")
+            binding.tvStreamStatus.text = getString(R.string.screen_mirror_restore_connection)
+            updateDiagBar("#FFB300", getString(R.string.screen_mirror_restore_adb))
 
             lifecycleScope.launch {
                 val reconnected = DeviceManager.getOrReconnectClient(this@ScrcpyActivity)
@@ -175,7 +175,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 } else {
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.text = "ADB 设备连接已断开\n【点击此处重新连接】"
-                    updateDiagBar("#F44336", "连接已断开 | 点击重试")
+                    updateDiagBar("#F44336", getString(R.string.screen_mirror_disconnected_retry))
                     binding.tvStreamStatus.setOnClickListener {
                         triggerAutoReconnect(force = true)
                     }
@@ -201,16 +201,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             onSoundActiveChanged = { active ->
                 runOnUiThread {
                     if (!isActivityStopped) {
-                        val statusText = if (active) "声音传输中 (有音频播放)" else "音频已连接 (静音待机)"
+                        val statusText = if (active) getString(R.string.screen_mirror_audio_playing) else getString(R.string.screen_mirror_audio_idle)
                         updateAudioDiag(statusText, false)
                     }
                 }
             }
             onConnectionDisconnected = {
                 runOnUiThread {
-                    updateAudioDiag("远程连接已断开，音频已停止", true)
+                    updateAudioDiag(getString(R.string.screen_mirror_audio_disconnected), true)
                     if (!isActivityStopped && !isReconnecting) {
-                        updateDiagBar("#F44336", "连接已断开")
+                        updateDiagBar("#F44336", getString(R.string.screen_mirror_connection_disconnected))
                         triggerAutoReconnect(force = true)
                     }
                 }
@@ -220,7 +220,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         AudioPlaybackService.onServiceStopRequested = {
             runOnUiThread {
                 scrcpyManager?.stopAudioStream()
-                Toast.makeText(this@ScrcpyActivity, "后台音频播放已停止", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ScrcpyActivity, R.string.audio_background_stopped, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -304,13 +304,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.btnHeadset.setOnClickListener {
             val adbClient = DeviceManager.adbClient
             if (adbClient == null || !adbClient.isConnected) {
-                Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             lifecycleScope.launch {
                 val newState = VirtualHeadsetManager.toggle(adbClient)
                 updateHeadsetButtonUI(newState)
-                val tip = if (newState) "虚拟耳机已接入：被控端外放已静音" else "虚拟耳机已拔出：被控端外放已恢复"
+                val tip = if (newState) getString(R.string.headset_plugged_toast) else getString(R.string.headset_unplugged_toast)
                 Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
             }
         }
@@ -349,7 +349,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             lifecycleScope.launch(Dispatchers.IO) {
                 scrcpyManager?.turnScreenOn()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@ScrcpyActivity, "已向对端发送唤醒与解锁指令", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.wake_unlock_sent, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -381,14 +381,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             if (isScreenOff) {
                 manager.turnScreenOn()
                 isScreenOff = false
-                Toast.makeText(this@ScrcpyActivity, "已唤醒被控端屏幕", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ScrcpyActivity, R.string.turn_screen_on, Toast.LENGTH_SHORT).show()
             } else {
                 val changed = manager.turnScreenOff()
                 if (changed) {
                     isScreenOff = true
-                    Toast.makeText(this@ScrcpyActivity, "已熄灭被控端屏幕 (投屏后台运行)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.turn_screen_off, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@ScrcpyActivity, "当前设备暂不支持在锁屏投屏时熄屏", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.screen_off_unsupported, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1131,7 +1131,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     if (updated) {
                         binding.pbLoading.visibility = View.GONE
                         binding.tvStreamStatus.visibility = View.GONE
-                        updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${videoWidth}x${videoHeight} ${config.maxFps}fps")
+                        updateDiagBar("#4CAF50", getString(R.string.screen_mirror_hardware_active, videoWidth, videoHeight, config.maxFps))
                         return
                     }
                 }
@@ -1139,8 +1139,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             } else {
                 binding.pbLoading.visibility = View.VISIBLE
                 binding.tvStreamStatus.visibility = View.VISIBLE
-                binding.tvStreamStatus.text = "等待显示画面画布就绪..."
-                updateDiagBar("#FFB300", "正在等待显示画布就绪...")
+                binding.tvStreamStatus.text = getString(R.string.screen_mirror_waiting_surface)
+                updateDiagBar("#FFB300", getString(R.string.screen_mirror_waiting_surface))
             }
         }
     }
@@ -1153,16 +1153,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isReconnecting = true
 
         stopStreaming(keepAudioIfPlaying = false)
-        updateAudioDiag("连接已断开，音频已停止", true)
+        updateAudioDiag(getString(R.string.screen_mirror_audio_disconnected), true)
         binding.surfaceView.visibility = View.VISIBLE
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
 
         reconnectAttempts++
-        val attemptMsg = if (reconnectAttempts <= 1) "连接已断开，正在自动重新连接..." else "正在尝试重新连接被控设备 (第 ${reconnectAttempts} 次)..."
+        val attemptMsg = if (reconnectAttempts <= 1) getString(R.string.screen_mirror_reconnect_message) else getString(R.string.screen_mirror_reconnect_attempt, reconnectAttempts)
         binding.tvStreamStatus.text = attemptMsg
-        updateDiagBar("#FFB300", "连接断开 | 正在自动重连...")
+        updateDiagBar("#FFB300", getString(R.string.screen_mirror_reconnect_message))
 
         // 点击文字立即重试
         binding.tvStreamStatus.setOnClickListener {
@@ -1196,13 +1196,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         scrcpyManager?.updateAdbClient(client)
                     }
                     reconnectAttempts = 0
-                    Toast.makeText(this@ScrcpyActivity, "设备重连成功，正在恢复投屏画面...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.screen_mirror_reconnect_success, Toast.LENGTH_SHORT).show()
                     checkAndResumeStream()
                 } else {
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.VISIBLE
                     binding.tvStreamStatus.text = "自动重连失败，设备可能已离线或网络断开。\n【点击此处重新尝试连接】"
-                    updateDiagBar("#F44336", "重连失败 | 请检查设备网络")
+                    updateDiagBar("#F44336", getString(R.string.screen_mirror_reconnect_failed))
                     binding.tvStreamStatus.setOnClickListener {
                         reconnectAttempts = 0
                         triggerAutoReconnect(force = true)
@@ -1250,15 +1250,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
-    private var currentVideoDiag: String = "正在连接..."
-    private var currentAudioDiag: String = "音频准备中"
+    private var currentVideoDiag: String = ""
+    private var currentAudioDiag: String = ""
     private var currentDiagColor: String = "#FFB300"
 
     private fun updateCombinedDiag() {
         val combined = if (config.enableAudio) {
             "$currentVideoDiag | $currentAudioDiag"
         } else {
-            "$currentVideoDiag | 音频:已关"
+            "$currentVideoDiag | ${getString(R.string.screen_mirror_audio_off)}"
         }
         try {
             binding.vStatusIndicator.backgroundTintList =
@@ -1284,11 +1284,11 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun toggleStreamMode() {
         if (isFallbackMode) {
             userSelectedFallback = false
-            Toast.makeText(this, "正在切换至极速硬件推流(H264)...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.screen_mirror_hardware_starting, Toast.LENGTH_SHORT).show()
             startStreaming()
         } else {
             userSelectedFallback = true
-            Toast.makeText(this, "正在切换至稳定截屏兼容模式...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.screen_mirror_switch_screenshot, Toast.LENGTH_SHORT).show()
             startFallbackImageStream()
         }
     }
@@ -1312,14 +1312,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.ivScreen.visibility = View.GONE
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
-        binding.tvStreamStatus.text = "正在启动高清硬件投屏..."
-        updateDiagBar("#FFB300", "模式: 极速硬件流(H264) | 正在建立连接...")
+        binding.tvStreamStatus.text = getString(R.string.screen_mirror_hardware_starting)
+        updateDiagBar("#FFB300", getString(R.string.screen_mirror_hardware_mode))
 
         val manager = scrcpyManager ?: return
         val surface = binding.surfaceView.holder.surface
         if (!surface.isValid) {
-            binding.tvStreamStatus.text = "等待显示窗口就绪..."
-            updateDiagBar("#FFB300", "模式: 极速硬件流 | 等待显示画布就绪...")
+            binding.tvStreamStatus.text = getString(R.string.screen_mirror_waiting_window)
+            updateDiagBar("#FFB300", getString(R.string.screen_mirror_hardware_surface))
             return
         }
 
@@ -1335,8 +1335,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             if (!receivedFirstH264Frame && isActive && isActivityResumed && !isActivityStopped) {
                 runOnUiThread {
                     binding.tvStreamStatus.visibility = View.VISIBLE
-                    binding.tvStreamStatus.text = "硬件流建立超时，正在切换至稳定截屏模式..."
-                    updateDiagBar("#FFB300", "硬件流超时，已自动切至稳定截屏模式")
+                    binding.tvStreamStatus.text = getString(R.string.screen_mirror_hardware_timeout)
+                    updateDiagBar("#FFB300", getString(R.string.screen_mirror_hardware_fallback))
                     startFallbackImageStream()
                 }
             }
@@ -1365,7 +1365,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }
                     binding.pbLoading.visibility = View.GONE
                     binding.tvStreamStatus.visibility = View.GONE
-                    updateDiagBar("#4CAF50", "模式: 极速硬件流(H264) | ${w}x${h} ${config.maxFps}fps")
+                    updateDiagBar("#4CAF50", getString(R.string.screen_mirror_hardware_active, w, h, config.maxFps))
 
                     // Keep the Android 14 lock screen awake while PIN or pattern input is available.
                     // turnScreenOff() refuses while a secure keyguard is showing and reports whether it ran.
@@ -1410,7 +1410,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                     val client = DeviceManager.adbClient
                     if (client == null || !client.isConnected) {
-                        updateDiagBar("#F44336", "连接已断开: $errMsg")
+                        updateDiagBar("#F44336", "${getString(R.string.screen_mirror_connection_disconnected)}: $errMsg")
                         triggerAutoReconnect(force = true)
                         return@runOnUiThread
                     }
@@ -1418,14 +1418,14 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     streamRetryCount++
                     if (streamRetryCount > 2) {
                         streamRetryCount = 0
-                        updateDiagBar("#FFB300", "硬件流异常，已自动切至稳定截屏模式")
+                        updateDiagBar("#FFB300", getString(R.string.screen_mirror_hardware_fallback))
                         startFallbackImageStream()
                         return@runOnUiThread
                     }
 
-                    updateDiagBar("#FFB300", "流传输中断，正在自动恢复...")
+                    updateDiagBar("#FFB300", getString(R.string.screen_mirror_stream_recovering))
                     binding.tvStreamStatus.visibility = View.VISIBLE
-                    binding.tvStreamStatus.text = "投屏流异常中断，正在自动恢复..."
+                    binding.tvStreamStatus.text = getString(R.string.screen_mirror_stream_error)
 
                     lifecycleScope.launch {
                         delay(800)
@@ -1478,16 +1478,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         binding.pbLoading.visibility = View.VISIBLE
         binding.tvStreamStatus.visibility = View.VISIBLE
         val manager = scrcpyManager
-        val methodName = manager?.getPreferredCaptureMethodName() ?: "自动探测"
-        binding.tvStreamStatus.text = "正在以稳定截屏模式获取屏幕画面..."
-        updateDiagBar("#FFB300", "模式: 稳定截屏($methodName) | 正在连接...")
+        val methodName = manager?.getPreferredCaptureMethodName() ?: "auto"
+        binding.tvStreamStatus.text = getString(R.string.screen_mirror_stable_capture)
+        updateDiagBar("#FFB300", getString(R.string.screen_mirror_capture_mode, methodName))
 
         // 支持点击状态文字手动唤醒被控端并重试
         binding.tvStreamStatus.setOnClickListener {
             lifecycleScope.launch(Dispatchers.IO) {
                 manager?.turnScreenOn()
             }
-            Toast.makeText(this, "正在重新拉取画面并唤醒屏幕...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.screen_mirror_capture_retry, Toast.LENGTH_SHORT).show()
         }
 
         streamJob = lifecycleScope.launch(Dispatchers.IO) {
@@ -1530,7 +1530,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         binding.ivScreen.setImageBitmap(frame)
                         updateDiagBar(
                             indicatorColor = "#4CAF50",
-                            text = "模式: 截屏(${mgr.getPreferredCaptureMethodName()}) | 帧率: ${currentFps} fps"
+                            text = getString(R.string.screen_mirror_capture_frame, mgr.getPreferredCaptureMethodName(), currentFps)
                         )
                         if (isFirst) {
                             binding.pbLoading.visibility = View.GONE
@@ -1552,7 +1552,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     if (client == null || !client.isConnected) {
                         withContext(Dispatchers.Main) {
                             if (!isActivityStopped && isActivityResumed) {
-                                updateDiagBar("#F44336", "连接已断开")
+                                updateDiagBar("#F44336", getString(R.string.screen_mirror_connection_disconnected))
                                 triggerAutoReconnect(force = true)
                             } else {
                                 stopStreaming(keepAudioIfPlaying = false)
@@ -1563,12 +1563,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     consecutiveFailures++
                     val lastErr = mgr.getLastCaptureError()
                     withContext(Dispatchers.Main) {
-                        val msg = if (lastErr.isNotBlank()) "正在获取画面: $lastErr" else "正在重试获取被控端画面 (请确保设备未锁定)..."
+                        val msg = if (lastErr.isNotBlank()) getString(R.string.screen_mirror_capture_fetch, lastErr) else getString(R.string.screen_mirror_capture_retry_message)
                         binding.tvStreamStatus.visibility = View.VISIBLE
                         binding.tvStreamStatus.text = msg
                         updateDiagBar(
                             indicatorColor = "#FFB300",
-                            text = "截屏重试中($consecutiveFailures): ${lastErr.take(24)}"
+                            text = getString(R.string.screen_mirror_capture_retry_count, consecutiveFailures, lastErr.take(24))
                         )
                     }
 
@@ -1757,12 +1757,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             dialog.dismiss()
 
             if (needRestartVideo) {
-                Toast.makeText(this, "投屏参数已更新，正在重载画面...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.screen_mirror_settings_reload, Toast.LENGTH_SHORT).show()
                 startStreaming()
             } else {
-                val audioMsg = if (config.enableAudio) "声音传输已开启" else "声音传输已关闭"
-                val muteTip = if (config.muteDeviceAudio) "，虚拟耳机外放已静音" else ""
-                Toast.makeText(this, "设置已生效 ($audioMsg$muteTip)", Toast.LENGTH_SHORT).show()
+                val audioMsg = if (config.enableAudio) getString(R.string.audio_enabled) else getString(R.string.audio_disabled)
+                val muteTip = if (config.muteDeviceAudio) getString(R.string.virtual_headset_muted) else ""
+                Toast.makeText(this, getString(R.string.settings_effective, audioMsg, muteTip), Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1770,21 +1770,21 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun showQuickMenuDialog() {
-        val headsetAction = if (VirtualHeadsetManager.isPluggedIn) "🎧 拔出虚拟耳机 (恢复外放)" else "🎧 接入虚拟耳机 (静音对端外放)"
-        val fullscreenAction = if (config.isFullscreen) "🔲 退出全屏显示" else "🔲 切换全屏显示"
+        val headsetAction = if (VirtualHeadsetManager.isPluggedIn) getString(R.string.headset_unplug_action) else getString(R.string.headset_plug_action)
+        val fullscreenAction = if (config.isFullscreen) getString(R.string.exit_fullscreen) else getString(R.string.toggle_fullscreen)
         val items = arrayOf(
-            "📋 剪贴板传输",
-            "🔑 盲输入锁屏密码",
+            getString(R.string.mirror_menu_clipboard),
+            getString(R.string.mirror_menu_blind_unlock),
             headsetAction,
             fullscreenAction,
-            "📱 被控端熄屏/亮屏",
-            "🧭 重置控制栏与悬浮球位置",
-            "🔄 切换投屏模式 (流式/截图)",
-            "⚙️ 投屏设置",
-            "🚪 退出投屏"
+            getString(R.string.mirror_screen_power),
+            getString(R.string.reset_controls),
+            getString(R.string.toggle_mirror_mode),
+            getString(R.string.mirror_menu_settings),
+            getString(R.string.exit_mirror)
         )
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("控制菜单")
+            .setTitle(R.string.screen_mirror_menu_title)
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> showClipboardTransferDialog()
@@ -1792,7 +1792,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     2 -> {
                         val adbClient = DeviceManager.adbClient
                         if (adbClient == null || !adbClient.isConnected) {
-                            Toast.makeText(this, "ADB 设备未连接", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, R.string.adb_not_connected, Toast.LENGTH_SHORT).show()
                             return@setItems
                         }
                         lifecycleScope.launch {
@@ -1800,7 +1800,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             config.muteDeviceAudio = newState
                             saveConfig()
                             updateHeadsetButtonUI(newState)
-                            val tip = if (newState) "虚拟耳机已接入：被控端外放已静音" else "虚拟耳机已拔出：被控端外放已恢复"
+                            val tip = if (newState) getString(R.string.headset_plugged_toast) else getString(R.string.headset_unplugged_toast)
                             Toast.makeText(this@ScrcpyActivity, tip, Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -1817,16 +1817,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         binding.fabQuickMenu.translationY = 0f
                         applyNavPosition(config.navPosition)
                         saveConfig()
-                        Toast.makeText(this, "已重置控制栏与悬浮球位置", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, R.string.screen_mirror_reset_done, Toast.LENGTH_SHORT).show()
                     }
                     6 -> {
                         if (binding.surfaceView.visibility == View.VISIBLE) {
                             userSelectedFallback = true
-                            Toast.makeText(this, "正在切换至兼容截图投屏模式...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, R.string.screen_mirror_switch_screenshot, Toast.LENGTH_SHORT).show()
                             startFallbackImageStream()
                         } else {
                             userSelectedFallback = false
-                            Toast.makeText(this, "正在切换至硬件解码流式投屏...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, R.string.screen_mirror_switch_stream, Toast.LENGTH_SHORT).show()
                             startStreaming()
                         }
                     }
@@ -1863,7 +1863,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 dialogBinding.btnRefreshDeviceClip.isEnabled = true
                 dialogBinding.etDeviceText.setText(text)
                 if (text.isEmpty()) {
-                    Toast.makeText(this@ScrcpyActivity, "被控机剪贴板为空或未获取到内容", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.clipboard_empty, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1901,9 +1901,9 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val text = getHostClipboardText()
             if (text.isNotEmpty()) {
                 dialogBinding.etHostText.setText(text)
-                Toast.makeText(this, "已读取本机剪贴板内容", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.host_clipboard_read, Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "本机剪贴板当前为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.host_clipboard_empty, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -1916,15 +1916,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         dialogBinding.btnSendToDevice.setOnClickListener {
             val text = dialogBinding.etHostText.text?.toString().orEmpty()
             if (text.isEmpty()) {
-                Toast.makeText(this, "发送内容不能为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.clipboard_empty_input, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             lifecycleScope.launch {
                 val ok = scrcpyManager?.setDeviceClipboard(text, paste = false) == true
                 if (ok) {
-                    Toast.makeText(this@ScrcpyActivity, "已成功写入被控机剪贴板", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.clipboard_write_success, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@ScrcpyActivity, "写入被控机剪贴板失败，请检查连接", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.clipboard_write_failed, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1933,16 +1933,16 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         dialogBinding.btnSendAndPaste.setOnClickListener {
             val text = dialogBinding.etHostText.text?.toString().orEmpty()
             if (text.isEmpty()) {
-                Toast.makeText(this, "发送内容不能为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.clipboard_empty_input, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             lifecycleScope.launch {
                 val ok = scrcpyManager?.setDeviceClipboard(text, paste = true) == true
                 if (ok) {
-                    Toast.makeText(this@ScrcpyActivity, "已写入被控机并执行粘贴", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.clipboard_paste_success, Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 } else {
-                    Toast.makeText(this@ScrcpyActivity, "发送或粘贴失败，请检查连接", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@ScrcpyActivity, R.string.clipboard_paste_failed, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1956,12 +1956,12 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         dialogBinding.btnCopyDeviceToHost.setOnClickListener {
             val text = dialogBinding.etDeviceText.text?.toString().orEmpty()
             if (text.isEmpty()) {
-                Toast.makeText(this, "被控机剪贴板内容为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.clipboard_device_empty, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             val clip = ClipData.newPlainText("Scrcpy Remote Clip", text)
             clipboardManager?.setPrimaryClip(clip)
-            Toast.makeText(this, "已复制到本机剪贴板", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.clipboard_copied, Toast.LENGTH_SHORT).show()
         }
 
         // 按钮交互：关闭
@@ -1978,7 +1978,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val currentIndex = options.indexOfFirst { it.value == config.audioSource }.coerceAtLeast(0)
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("音频传输设置")
+            .setTitle(R.string.screen_mirror_audio_settings)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 val selected = options[which].value
                 config.audioSource = selected
@@ -1991,17 +1991,17 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     gain = config.audioGain,
                     muteDevice = config.muteDeviceAudio
                 )
-                Toast.makeText(this, "已切换为: ${options[which].label}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.screen_mirror_audio_switched, options[which].label), Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
-            .setPositiveButton(if (config.muteDeviceAudio) "恢复对端声音" else "静音对端外放") { _, _ ->
+            .setPositiveButton(if (config.muteDeviceAudio) R.string.restore_remote_audio else R.string.mute_remote_speaker) { _, _ ->
                 config.muteDeviceAudio = !config.muteDeviceAudio
                 saveConfig()
                 scrcpyManager?.setDeviceMuted(config.muteDeviceAudio)
-                val tip = if (config.muteDeviceAudio) "已将对端物理外放设为微音量静音 (保持内录信号)" else "已恢复对端物理外放声音"
+                val tip = if (config.muteDeviceAudio) getString(R.string.screen_mirror_audio_muted) else getString(R.string.screen_mirror_audio_restored)
                 Toast.makeText(this, tip, Toast.LENGTH_SHORT).show()
             }
-            .setNeutralButton(if (config.enableAudio) "关闭音频" else "开启音频") { _, _ ->
+            .setNeutralButton(if (config.enableAudio) R.string.disable_audio else R.string.enable_audio) { _, _ ->
                 config.enableAudio = !config.enableAudio
                 saveConfig()
                 scrcpyManager?.setAudioEnabled(
@@ -2011,20 +2011,20 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     gain = config.audioGain,
                     muteDevice = config.muteDeviceAudio
                 )
-                val msg = if (config.enableAudio) "已开启音频传输" else "已关闭音频传输"
+                val msg = if (config.enableAudio) getString(R.string.audio_forward_enabled) else getString(R.string.audio_forward_disabled)
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun updateHeadsetButtonUI(isPluggedIn: Boolean) {
         if (isPluggedIn) {
             binding.btnHeadset.setColorFilter(android.graphics.Color.parseColor("#4CAF50"))
-            binding.btnHeadset.contentDescription = "虚拟耳机（已接入，被控端静音）"
+            binding.btnHeadset.contentDescription = getString(R.string.headset_connected_content_description)
         } else {
             binding.btnHeadset.setColorFilter(android.graphics.Color.WHITE)
-            binding.btnHeadset.contentDescription = "虚拟耳机（已断开，被控端外放）"
+            binding.btnHeadset.contentDescription = getString(R.string.headset_disconnected_content_description)
         }
     }
 

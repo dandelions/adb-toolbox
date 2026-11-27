@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
@@ -12,6 +14,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.toolbox.adbhelper.App
 import com.toolbox.adbhelper.R
 import com.toolbox.adbhelper.core.DeviceManager
 import com.toolbox.adbhelper.core.model.DeviceInfo
@@ -38,8 +41,34 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        setSupportActionBar(binding.toolbar)
 
         initViews()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(R.string.language)
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.title == getString(R.string.language)) {
+            val tags = arrayOf(getString(R.string.language_chinese), getString(R.string.language_english))
+            val currentTag = resources.configuration.locales[0].language
+            val checked = if (currentTag == "en") 1 else 0
+            AlertDialog.Builder(this)
+                .setTitle(R.string.language)
+                .setSingleChoiceItems(tags, checked) { dialog, which ->
+                    App.setLanguage(if (which == 1) "en" else "zh")
+                    dialog.dismiss()
+                    recreate()
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     override fun onResume() {
@@ -68,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             if (DeviceManager.isConnected) {
                 DeviceManager.disconnect()
                 refreshDeviceState()
-                Toast.makeText(this, "已断开连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.device_disconnected_toast, Toast.LENGTH_SHORT).show()
             } else {
                 startActivity(Intent(this, ConnectActivity::class.java))
             }
@@ -96,15 +125,15 @@ class MainActivity : AppCompatActivity() {
                         startActivity(Intent(this@MainActivity, ScrcpyActivity::class.java))
                     } else {
                         MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle("屏幕投屏")
-                            .setMessage("当前尚未连接 ADB 设备。\n您可以前往连接，或者在连接前配置投屏的分辨率与码率预设。")
-                            .setPositiveButton("连接设备") { _, _ ->
+                            .setTitle(R.string.mirror)
+                            .setMessage(R.string.mirror_not_connected_message)
+                            .setPositiveButton(R.string.connect_device) { _, _ ->
                                 startActivity(Intent(this@MainActivity, ConnectActivity::class.java))
                             }
-                            .setNeutralButton("配置投屏预设") { _, _ ->
+                            .setNeutralButton(R.string.configure_mirror_preset) { _, _ ->
                                 showScrcpyPresetDialog()
                             }
-                            .setNegativeButton("取消", null)
+                            .setNegativeButton(R.string.cancel, null)
                             .show()
                     }
                 }
@@ -148,7 +177,7 @@ class MainActivity : AppCompatActivity() {
                     refreshDeviceState()
                     action()
                 } else {
-                    Toast.makeText(this@MainActivity, "请先连接 ADB 设备", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, R.string.connect_adb_first, Toast.LENGTH_SHORT).show()
                     startActivity(Intent(this@MainActivity, ConnectActivity::class.java))
                 }
             }
@@ -164,8 +193,8 @@ class MainActivity : AppCompatActivity() {
         val client = DeviceManager.adbClient
         if (dev != null && client != null && client.isConnected) {
             binding.tvDeviceName.text = "${dev.name} (${dev.type})"
-            binding.tvDeviceStatus.text = "设备在线，点击可断开"
-            binding.btnConnect.text = "断开"
+            binding.tvDeviceStatus.text = getString(R.string.device_online_click_disconnect)
+            binding.btnConnect.text = getString(R.string.disconnect)
             binding.cardDeviceInfo.visibility = View.VISIBLE
 
             // 如果已经加载过当前设备信息，无需重复发起多条 shell 命令，避免 socket 竞争与阻塞
@@ -183,43 +212,43 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             lastLoadedDeviceId = null
-            binding.tvDeviceName.text = "未连接任何设备"
-            binding.tvDeviceStatus.text = "点击连接设备 (WiFi / OTG)"
-            binding.btnConnect.text = "连接"
+            binding.tvDeviceName.text = getString(R.string.not_connected)
+            binding.tvDeviceStatus.text = getString(R.string.connect_device_wifi_otg)
+            binding.btnConnect.text = getString(R.string.connect)
             binding.cardDeviceInfo.visibility = View.GONE
         }
     }
 
     private fun updateDeviceInfoUI(info: DeviceInfo) {
-        binding.tvInfoAndroid.text = "机型系统: ${info.brand} ${info.model} (Android ${info.androidVersion}, SDK ${info.sdkVersion})"
-        binding.tvInfoBattery.text = "电池状态: 电量 ${info.batteryLevel}%, 温度 ${info.batteryTemp}°C, 状态: ${info.batteryStatus}"
-        binding.tvInfoScreen.text = "屏幕显示: 分辨率 ${info.resolution}, 像素密度 ${info.density}"
+        binding.tvInfoAndroid.text = getString(R.string.device_android_info, info.brand, info.model, info.androidVersion, info.sdkVersion)
+        binding.tvInfoBattery.text = getString(R.string.device_battery_info, info.batteryLevel, info.batteryTemp, info.batteryStatus)
+        binding.tvInfoScreen.text = getString(R.string.device_screen_info, info.resolution, info.density)
         val total = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageTotal)
         val free = com.toolbox.adbhelper.core.adb.AdbClient.formatStorageToGb(info.storageFree)
         binding.tvInfoStorage.text = if (total != "Unknown" && free != "Unknown") {
-            "内置空间: 总空间 $total, 剩余空间 $free"
+            getString(R.string.storage_info, total, free)
         } else if (total != "Unknown") {
-            "内置空间: 总空间 $total"
+            getString(R.string.storage_total_info, total)
         } else {
-            "内置空间: 未知"
+            getString(R.string.storage_unknown)
         }
     }
 
     private fun showUtilitiesDialog() {
         val client = DeviceManager.adbClient ?: return
         val options = arrayOf(
-            "修改屏幕 DPI",
-            "重置屏幕 DPI",
-            "一键截取屏幕",
-            "免Root激活: Shizuku",
-            "免Root激活: 黑阈",
-            "重启: 重启到系统",
-            "重启: 重启到 Recovery",
-            "重启: 重启到 Bootloader"
+            getString(R.string.change_dpi),
+            getString(R.string.dpi_reset_action),
+            getString(R.string.screenshot_action),
+            getString(R.string.activate_shizuku),
+            getString(R.string.activate_blackroom),
+            getString(R.string.reboot_system_action),
+            getString(R.string.reboot_recovery_action),
+            getString(R.string.reboot_bootloader_action)
         )
 
         AlertDialog.Builder(this)
-            .setTitle("实用工具箱")
+            .setTitle(R.string.utilities)
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> showEditDpiDialog(client)
@@ -227,7 +256,7 @@ class MainActivity : AppCompatActivity() {
                         lifecycleScope.launch(Dispatchers.IO) {
                             client.modifyDensity(0)
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(this@MainActivity, "DPI 已重置", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, R.string.dpi_reset, Toast.LENGTH_SHORT).show()
                                 refreshDeviceState()
                             }
                         }
@@ -236,7 +265,7 @@ class MainActivity : AppCompatActivity() {
                         lifecycleScope.launch(Dispatchers.IO) {
                             client.executeShell("screencap -p /sdcard/screenshot.png")
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(this@MainActivity, "截图已保存到对端 /sdcard/screenshot.png", Toast.LENGTH_LONG).show()
+                                Toast.makeText(this@MainActivity, R.string.screenshot_saved, Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -247,31 +276,31 @@ class MainActivity : AppCompatActivity() {
                     7 -> rebootDevice(client, "bootloader")
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun showEditDpiDialog(client: com.toolbox.adbhelper.core.adb.AdbClient) {
         val input = EditText(this).apply {
-            hint = "输入 DPI 数值 (如 420)"
+            hint = getString(R.string.dpi_hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
         }
         AlertDialog.Builder(this)
-            .setTitle("修改屏幕 DPI")
+            .setTitle(R.string.change_dpi)
             .setView(input)
-            .setPositiveButton("应用") { _, _ ->
+            .setPositiveButton(R.string.apply) { _, _ ->
                 val dpi = input.text.toString().toIntOrNull() ?: 0
                 if (dpi > 0) {
                     lifecycleScope.launch(Dispatchers.IO) {
                         client.modifyDensity(dpi)
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(this@MainActivity, "DPI 设置成功: $dpi", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, getString(R.string.dpi_set_success, dpi), Toast.LENGTH_SHORT).show()
                             refreshDeviceState()
                         }
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -280,9 +309,9 @@ class MainActivity : AppCompatActivity() {
             val res = client.activateAppService(type)
             withContext(Dispatchers.Main) {
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("激活结果")
-                    .setMessage(if (res.isBlank()) "激活命令已执行！" else res)
-                    .setPositiveButton("确定", null)
+                    .setTitle(R.string.activation_result)
+                    .setMessage(if (res.isBlank()) getString(R.string.activation_done) else res)
+                    .setPositiveButton(R.string.confirm, null)
                     .show()
             }
         }
@@ -290,14 +319,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun rebootDevice(client: com.toolbox.adbhelper.core.adb.AdbClient, mode: String) {
         AlertDialog.Builder(this)
-            .setTitle("重启确认")
-            .setMessage("确定要重启对端设备吗？")
-            .setPositiveButton("确认") { _, _ ->
+            .setTitle(R.string.reboot_confirmation)
+            .setMessage(R.string.reboot_message)
+            .setPositiveButton(R.string.confirm) { _, _ ->
                 lifecycleScope.launch(Dispatchers.IO) {
                     client.reboot(mode)
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -415,9 +444,9 @@ class MainActivity : AppCompatActivity() {
 
         val isDeviceConnected = DeviceManager.adbClient != null
         if (isDeviceConnected) {
-            dialogBinding.btnApplySettings.text = "保存并开始投屏"
+            dialogBinding.btnApplySettings.setText(R.string.save_and_start_mirror)
         } else {
-            dialogBinding.btnApplySettings.text = "保存投屏预设"
+            dialogBinding.btnApplySettings.setText(R.string.save_mirror_preset)
         }
 
         dialogBinding.btnApplySettings.setOnClickListener {
@@ -443,7 +472,7 @@ class MainActivity : AppCompatActivity() {
             if (isDeviceConnected) {
                 startActivity(Intent(this, ScrcpyActivity::class.java))
             } else {
-                Toast.makeText(this, "投屏预设配置已保存！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, R.string.mirror_preset_saved, Toast.LENGTH_SHORT).show()
             }
         }
 

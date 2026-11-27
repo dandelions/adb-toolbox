@@ -1,11 +1,13 @@
 # ADBToolbox (ADB助手) - 现代化开源重构工程
 
+[English documentation](README_EN.md)
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9.23-purple.svg)](https://kotlinlang.org)
 [![Material%203](https://img.shields.io/badge/Design-Material%203-indigo.svg)](https://m3.material.io)
 
-> **ADBToolbox** 是一款专为 Android 开发者与极客打造的现代化 Android 端 ADB 综合调试与投屏工具。
+> **ADBToolbox** 是一款由 AI 协助开发、专为 Android 开发者与极客打造的现代化 Android 端 ADB 综合调试与投屏工具。
 > 采用 **纯 Kotlin + 原生 JVM/Android 网络通信栈 + Material 3** 全新设计开发，完全摒弃了传统工具依赖专有 Native `.so` 动态库与加固抽取壳的局限，具备 **全架构通用 (ARM64 / ARM32 / x86_64)、代码 100% 自主可控、极速响应、优雅现代** 的特点。
 
 ---
@@ -142,7 +144,12 @@ cd adb-toolbox
 
 ## 📝 变更日志
 
-### v1.0.3 (Latest)
+### v1.1.17 (Latest)
+- **新增**：支持中文与英文界面，可从首页菜单切换语言，也支持 Android 应用语言设置。
+- **新增**：连接、投屏、音频、剪贴板、文件管理、应用管理、终端和 Fastboot 等功能均提供英文翻译。
+- **新增**：提供英文版项目文档 `README_EN.md`。
+
+### v1.0.3
 - **新增**：悬浮球菜单新增「📋 双向剪贴板传输」功能面板，支持主控机与被控机文本双向实时同步与一键粘贴。
 - **新增**：全新设计的 Material 3 科技极客风格自适应应用图标（Adaptive Icon + Monochrome 动态主题染色）。
 - **优化**：投屏界面悬浮球尺寸优化并支持全屏幕手势自由拖动、贴边保护与位置记忆重置。

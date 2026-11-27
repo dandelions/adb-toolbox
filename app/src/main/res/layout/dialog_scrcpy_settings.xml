@@ -14,7 +14,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="投屏与显示设置"
+            android:text="@string/scrcpy_display_settings"
             android:textColor="@color/text_primary"
             android:textSize="18sp"
             android:textStyle="bold" />
@@ -24,7 +24,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="画面分辨率 (最大尺寸)"
+            android:text="@string/resolution_max_size"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -55,7 +55,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="传输码率 (码率越低延迟越小，WiFi推荐4M/2M)"
+            android:text="@string/bitrate_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -86,7 +86,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="画面刷新率 (支持120Hz/90Hz高刷，极致丝滑)"
+            android:text="@string/fps_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -117,7 +117,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="控制栏停靠位置与显示"
+            android:text="@string/nav_position_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -149,7 +149,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="全屏沉浸显示 (隐藏系统栏和顶栏)"
+            android:text="@string/fullscreen_description"
             android:textColor="@color/text_primary" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
@@ -157,7 +157,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="全屏手势防误触 (底部上滑回桌面时，防止误触对端Home/返回)"
+            android:text="@string/gesture_guard_description"
             android:textColor="@color/text_primary" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
@@ -165,7 +165,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="熄屏操作 (投屏时关闭对端屏幕以省电)"
+            android:text="@string/screen_off_description"
             android:textColor="@color/text_primary" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
@@ -173,7 +173,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="声音传输 (对端音频转发至本机播放)"
+            android:text="@string/audio_forward_description"
             android:textColor="@color/text_primary" />
 
         <!-- 后台音频保活开关 -->
@@ -182,7 +182,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="切后台纯音频播放 (Home键切桌面不中断听歌，暂停传画省电)"
+            android:text="@string/background_audio_description"
             android:textColor="@color/text_primary" />
 
         <!-- 后台静音断开超时选择 -->
@@ -191,7 +191,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="后台静音自动断开超时 (切后台无声音多长时间后断开)"
+            android:text="@string/silence_timeout_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -223,7 +223,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="虚拟耳机静音外放 (系统级切断对端扬声器，仅本机听音)"
+            android:text="@string/mute_device_description"
             android:textColor="@color/text_primary" />
 
         <!-- 音质模式选择 -->
@@ -232,7 +232,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="音频传输与品质模式"
+            android:text="@string/audio_quality_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -264,7 +264,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="远端数字音量增益 (被控端静音/微音量时可数码放大)"
+            android:text="@string/audio_gain_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -296,7 +296,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="音频捕获输入源"
+            android:text="@string/audio_source_description"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -327,7 +327,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="应用并生效"
+            android:text="@string/apply_settings"
             android:textColor="@color/on_primary"
             app:backgroundTint="@color/primary" />
 

@@ -64,7 +64,7 @@
         android:background="#99000000"
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:navigationIconTint="#FFFFFF"
-        app:title="屏幕镜像"
+        app:title="@string/screen_mirroring"
         app:titleTextColor="#FFFFFF">
 
         <!-- 右侧顶部快捷按钮 -->
@@ -81,7 +81,7 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="全屏"
+                android:contentDescription="@string/fullscreen"
                 android:src="@drawable/ic_nav_fullscreen"
                 app:tint="#FFFFFF" />
 
@@ -90,7 +90,7 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="设置"
+                android:contentDescription="@string/settings"
                 android:src="@drawable/ic_nav_settings"
                 app:tint="#FFFFFF" />
 
@@ -126,7 +126,7 @@
             android:layout_weight="1"
             android:ellipsize="marquee"
             android:singleLine="true"
-            android:text="正在初始化投屏通道..."
+            android:text="@string/initializing_mirror"
             android:textColor="#E0E0E0"
             android:textSize="11sp" />
 
@@ -138,7 +138,7 @@
             android:backgroundTint="#33FFFFFF"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
-            android:text="切换模式"
+            android:text="@string/switch_mode"
             android:textColor="#80D8FF"
             android:textSize="11sp" />
 
@@ -151,7 +151,7 @@
             android:backgroundTint="#33FFFFFF"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
-            android:text="音频选项"
+            android:text="@string/audio_options"
             android:textColor="#C5CAE9"
             android:textSize="11sp" />
 
@@ -164,7 +164,7 @@
             android:backgroundTint="#33FFFFFF"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
-            android:text="唤醒屏幕"
+            android:text="@string/wake_screen"
             android:textColor="#FFD54F"
             android:textSize="11sp" />
 
@@ -193,7 +193,7 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="返回"
+                android:contentDescription="@string/back"
                 android:src="@drawable/ic_nav_back"
                 app:tint="#FFFFFF" />
 
@@ -203,7 +203,7 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="主页"
+                android:contentDescription="@string/home"
                 android:src="@drawable/ic_nav_home"
                 app:tint="#FFFFFF" />
 
@@ -213,7 +213,7 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="多任务"
+                android:contentDescription="@string/recent_apps"
                 android:src="@drawable/ic_nav_recent"
                 app:tint="#FFFFFF" />
 
@@ -223,7 +223,7 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="虚拟耳机（静音被控端外放）"
+                android:contentDescription="@string/virtual_headset"
                 android:src="@drawable/ic_nav_headset"
                 app:tint="#FFFFFF" />
 
@@ -233,7 +233,7 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="熄屏操作"
+                android:contentDescription="@string/screen_off_action"
                 android:src="@drawable/ic_nav_power"
                 app:tint="#FFFFFF" />
 
@@ -243,7 +243,7 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="投屏设置"
+                android:contentDescription="@string/mirror_settings"
                 android:src="@drawable/ic_nav_settings"
                 app:tint="#FFFFFF" />
 
@@ -261,7 +261,7 @@
         android:layout_marginBottom="10dp"
         android:alpha="0.85"
         android:background="@drawable/bg_floating_ball"
-        android:contentDescription="控制菜单"
+        android:contentDescription="@string/control_menu"
         android:elevation="6dp"
         android:padding="6dp"
         android:src="@drawable/ic_nav_more"

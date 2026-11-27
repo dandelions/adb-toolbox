@@ -46,9 +46,9 @@ class BlindUnlockActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvBlindStatus)
         swipeFirst = intent.getBooleanExtra(EXTRA_SWIPE_FIRST, true)
         if (!swipeFirst) {
-            findViewById<android.widget.TextView>(R.id.tvBlindTitle).text = "验证密码"
+            findViewById<android.widget.TextView>(R.id.tvBlindTitle).setText(R.string.verify_password)
             findViewById<android.widget.TextView>(R.id.tvBlindHint).text =
-                "当前页面禁止采集画面（例如安装应用、修改安全设置时的密码验证）。此处输入的数字会用 ADB 按键盲发到被控设备。"
+                getString(R.string.blind_verify_description)
         }
         val grid = findViewById<GridLayout>(R.id.gridKeypad)
 
@@ -90,7 +90,7 @@ class BlindUnlockActivity : AppCompatActivity() {
             val locked = isSecureKeyguardShowing(client)
             withContext(Dispatchers.Main) {
                 if (sending) return@withContext
-                tvStatus.text = if (locked) "设备已锁屏，输入密码后点“发送并解锁”" else "设备当前未锁屏"
+                tvStatus.text = if (locked) getString(R.string.device_locked_enter_pin) else getString(R.string.device_unlocked)
             }
         }
     }
@@ -110,7 +110,7 @@ class BlindUnlockActivity : AppCompatActivity() {
 
     private fun renderPin() {
         tvDots.text = "●".repeat(pinBuilder.length)
-        tvStatus.text = if (pinBuilder.isEmpty()) "" else "已输入 ${pinBuilder.length} 位"
+        tvStatus.text = if (pinBuilder.isEmpty()) "" else getString(R.string.entered_digits, pinBuilder.length)
     }
 
     private fun updateTargetHint() {
@@ -118,9 +118,9 @@ class BlindUnlockActivity : AppCompatActivity() {
         val device = DeviceManager.currentDevice
         when {
             client == null || !client.isConnected ->
-                tvStatus.text = "未连接设备，请先在首页连接被控设备"
+                tvStatus.text = getString(R.string.connect_adb_first)
             device != null && device.name.isNotBlank() ->
-                tvStatus.text = "目标设备：${device.name}"
+                tvStatus.text = getString(R.string.target_device, device.name)
         }
     }
 
@@ -128,16 +128,16 @@ class BlindUnlockActivity : AppCompatActivity() {
         if (sending) return
         val client = DeviceManager.adbClient
         if (client == null || !client.isConnected) {
-            tvStatus.text = "未连接设备，无法发送密码"
+            tvStatus.text = getString(R.string.cannot_send_no_device)
             return
         }
         if (pinBuilder.isEmpty()) {
-            tvStatus.text = "请先输入数字密码"
+            tvStatus.text = getString(R.string.enter_pin_first)
             return
         }
         val digits = pinBuilder.toString()
         sending = true
-        tvStatus.text = "正在发送…"
+        tvStatus.text = getString(R.string.sending)
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -173,16 +173,16 @@ class BlindUnlockActivity : AppCompatActivity() {
                         finish()
                     } else {
                         tvStatus.text = if (submit) {
-                            "已发送密码，若未解锁请检查密码是否正确"
+                            getString(R.string.pin_sent_check)
                         } else {
-                            "已发送数字"
+                            getString(R.string.digits_sent)
                         }
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     sending = false
-                    tvStatus.text = "发送失败：${e.message}"
+                    tvStatus.text = getString(R.string.send_failed, e.message ?: "Unknown error")
                 }
             }
         }

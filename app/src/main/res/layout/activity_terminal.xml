@@ -13,7 +13,7 @@
         android:background="#1E1E1E"
         app:navigationIcon="?attr/homeAsUpIndicator"
         app:navigationIconTint="#FFFFFF"
-        app:title="ADB 终端控制台"
+        app:title="@string/terminal_title"
         app:titleTextColor="#FFFFFF" />
 
     <!-- 终端输出区 -->
@@ -29,7 +29,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:text="ADB Shell 已就绪。\n在此处可直接执行任意 Shell 命令。\n$ "
+            android:text="@string/adb_shell_ready"
             android:textColor="@color/terminal_text"
             android:textIsSelectable="true"
             android:textSize="12sp" />
@@ -56,7 +56,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
-                android:text="清空" />
+                android:text="@string/clear_terminal" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/cmdGetprop"
@@ -109,7 +109,7 @@
             android:layout_weight="1"
             android:background="@null"
             android:fontFamily="monospace"
-            android:hint="输入命令..."
+            android:hint="@string/command_hint"
             android:imeOptions="actionSend"
             android:inputType="text"
             android:padding="8dp"
@@ -121,7 +121,7 @@
             android:id="@+id/btnSend"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="发送" />
+            android:text="@string/send" />
 
     </LinearLayout>
 

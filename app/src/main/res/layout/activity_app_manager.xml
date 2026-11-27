@@ -16,7 +16,7 @@
             android:layout_height="?attr/actionBarSize"
             android:background="@color/surface"
             app:navigationIcon="?attr/homeAsUpIndicator"
-            app:title="应用管理"
+            app:title="@string/app_manager_title"
             app:titleTextColor="@color/text_primary" />
 
         <LinearLayout
@@ -39,7 +39,7 @@
                     android:id="@+id/etSearch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="搜索应用名或包名"
+                    android:hint="@string/search_apps"
                     android:imeOptions="actionSearch"
                     android:inputType="text"
                     android:textColor="@color/text_primary" />
@@ -58,21 +58,21 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="全部应用" />
+                    android:text="@string/all_apps" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipThirdParty"
                     style="@style/Widget.Material3.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="第三方应用" />
+                    android:text="@string/third_party_apps" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipSystem"
                     style="@style/Widget.Material3.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="系统应用" />
+                    android:text="@string/system_apps" />
 
             </com.google.android.material.chip.ChipGroup>
 
@@ -100,7 +100,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
-        android:text="安装 APK"
+        android:text="@string/install_apk"
         app:icon="@android:drawable/ic_input_add" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

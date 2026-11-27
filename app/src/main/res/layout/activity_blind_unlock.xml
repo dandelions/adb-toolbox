@@ -14,7 +14,7 @@
         android:paddingTop="4dp"
         android:paddingBottom="10dp"
         android:paddingEnd="16dp"
-        android:text="← 返回投屏"
+        android:text="@string/back_to_mirror"
         android:textColor="#80CBC4"
         android:textSize="15sp" />
 
@@ -22,7 +22,7 @@
         android:id="@+id/tvBlindTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="盲输入锁屏密码"
+        android:text="@string/blind_unlock_title"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:textStyle="bold" />
@@ -33,7 +33,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:lineSpacingExtra="3dp"
-        android:text="Android 禁止采集锁屏密码界面，投屏只能显示黑屏。这里按下的数字会通过 ADB 按键逐个发送到被控设备，请确认密码正确后再发送。"
+        android:text="@string/blind_unlock_description"
         android:textColor="#9AA5B1"
         android:textSize="13sp" />
 
@@ -68,7 +68,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="清空" />
+            android:text="@string/clear" />
 
         <Button
             android:id="@+id/btnBlindSend"
@@ -76,7 +76,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:layout_weight="2"
-            android:text="发送并解锁" />
+            android:text="@string/send_and_unlock" />
     </LinearLayout>
 
     <TextView
@@ -95,7 +95,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:background="?attr/selectableItemBackground"
-        android:text="关闭"
+        android:text="@string/close"
         android:textColor="#FF8A80" />
 
 </LinearLayout>

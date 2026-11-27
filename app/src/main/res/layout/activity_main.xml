@@ -162,7 +162,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:layout_marginBottom="12dp"
-                android:text="功能大全"
+                android:text="@string/feature_overview"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -285,7 +285,7 @@
                             android:layout_gravity="top|end"
                             android:layout_margin="4dp"
                             android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="投屏参数配置"
+                            android:contentDescription="@string/mirror_settings_description"
                             android:padding="6dp"
                             android:src="@drawable/ic_nav_settings"
                             app:tint="@color/text_secondary" />
