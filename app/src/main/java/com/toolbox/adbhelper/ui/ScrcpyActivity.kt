@@ -229,8 +229,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val manager = scrcpyManager ?: return
         lifecycleScope.launch(Dispatchers.IO) {
             manager.syncLockScreenState()
-            // Preserve a user-requested screen-off state while the stream is rebuilt.
-            if (!manager.isScreenOffRequested()) {
+            // Preserve the configured screen-off state while the stream is rebuilt.
+            if (!config.turnScreenOff && !manager.isScreenOffRequested()) {
                 manager.turnScreenOn()
             }
 
@@ -266,7 +266,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.gestureGuard = prefs.getBoolean(KEY_GESTURE_GUARD, true)
-        config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false)
+        config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, true)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
         config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0) // 默认采用免安装免弹窗的系统原生内录优先
         config.audioQualityMode = prefs.getInt(KEY_AUDIO_QUALITY, 0) // 默认高保真音乐听歌模式
@@ -1100,7 +1100,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         // 3. 若当前未在推流，只恢复画面通道；用户主动熄屏后不要自动唤醒被控端。
-        if (scrcpyManager?.isStreamingNow() != true && scrcpyManager?.isScreenOffRequested() != true) {
+        if (scrcpyManager?.isStreamingNow() != true && config.turnScreenOff.not() && scrcpyManager?.isScreenOffRequested() != true) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     scrcpyManager?.turnScreenOn()
