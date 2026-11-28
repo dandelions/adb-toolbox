@@ -160,7 +160,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Changelog
 
-### v1.1.22 (Latest)
+### v1.1.23 (Latest)
+
+- Fixed the remote screen status indicator being clipped by other toolbar controls by moving it to a dedicated full-width row.
+
+### v1.1.22
 
 - Added a real-time remote screen status indicator to the mirroring assistant: Off, Dimmed (still on), On, or Unknown.
 - The status combines display power state and brightness and refreshes during mirroring.

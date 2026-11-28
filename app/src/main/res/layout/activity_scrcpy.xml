@@ -98,13 +98,29 @@
 
     </com.google.android.material.appbar.MaterialToolbar>
 
-    <!-- 诊断信息状态条（位于 Toolbar 下方） -->
+    <!-- 当前被控端屏幕状态，独立占行确保始终可见 -->
+    <TextView
+        android:id="@+id/tvScreenPowerStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="?attr/actionBarSize"
+        android:background="#D9121212"
+        android:gravity="center"
+        android:paddingVertical="6dp"
+        android:text="@string/screen_status_unknown"
+        android:textColor="#FFD54F"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <!-- 诊断信息状态条（位于屏幕状态行下方） -->
     <LinearLayout
         android:id="@+id/layoutDiagBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginTop="?attr/actionBarSize"
+        android:translationY="30dp"
         android:background="#B3121212"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -128,19 +144,6 @@
             android:singleLine="true"
             android:text="@string/initializing_mirror"
             android:textColor="#E0E0E0"
-            android:textSize="11sp" />
-
-        <TextView
-            android:id="@+id/tvScreenPowerStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_tag"
-            android:backgroundTint="#33FFFFFF"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="3dp"
-            android:text="@string/screen_status_unknown"
-            android:textColor="#FFD54F"
             android:textSize="11sp" />
 
         <TextView
