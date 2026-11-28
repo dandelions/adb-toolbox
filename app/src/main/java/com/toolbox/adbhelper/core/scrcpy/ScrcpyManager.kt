@@ -171,6 +171,8 @@ class ScrcpyManager(
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
+    fun isScreenOffRequested(): Boolean = screenOffRequested
+
     fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing
 
     fun usesShellTouchInput(): Boolean = isSecureKeyguardShowing

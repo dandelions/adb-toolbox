@@ -229,8 +229,10 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val manager = scrcpyManager ?: return
         lifecycleScope.launch(Dispatchers.IO) {
             manager.syncLockScreenState()
-            // Wake the device after detecting its Android version so Android 14 avoids legacy scrcpy power control.
-            manager.turnScreenOn()
+            // Preserve a user-requested screen-off state while the stream is rebuilt.
+            if (!manager.isScreenOffRequested()) {
+                manager.turnScreenOn()
+            }
 
             val (w, h) = manager.getDeviceResolution()
             physicalWidth = w
@@ -1097,8 +1099,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             scrcpyManager?.updateAdbClient(client)
         }
 
-        // 3. 若当前未在推流，主动唤醒屏幕
-        if (scrcpyManager?.isStreamingNow() != true) {
+        // 3. 若当前未在推流，只恢复画面通道；用户主动熄屏后不要自动唤醒被控端。
+        if (scrcpyManager?.isStreamingNow() != true && scrcpyManager?.isScreenOffRequested() != true) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     scrcpyManager?.turnScreenOn()
@@ -1572,11 +1574,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         )
                     }
 
-                    // 遇到连续失败时主动点亮并解锁
-                    if (consecutiveFailures % 3 == 0) {
-                        mgr.turnScreenOn()
-                    }
-
+                    // 连续多次失败只轮换截屏模式；不要因为恢复画面而唤醒用户主动熄灭的屏幕。
                     // 连续多次失败自动轮换截屏模式
                     if (consecutiveFailures in 4..6) {
                         val cur = mgr.getPreferredCaptureMethod()

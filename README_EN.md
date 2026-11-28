@@ -160,7 +160,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Changelog
 
-### v1.1.18 (Latest)
+### v1.1.19 (Latest)
+
+- Fixed the remote screen turning back on when returning to the controller page, rebuilding the Surface, or retrying screenshot capture after the user had turned it off.
+- Separated stream recovery from screen wake-up so wake commands are sent only after an explicit user action.
+
+### v1.1.18
 
 - Fixed Android 14 remote screen-off behavior by correcting the scrcpy power-mode protocol, flushing control packets, and verifying the actual display power state.
 - Added an Android 14 power-key fallback when the scrcpy control channel does not take effect, and stopped treating brightness-only dimming as a successful screen-off operation.
