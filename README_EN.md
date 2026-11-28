@@ -160,7 +160,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Changelog
 
-### v1.1.20 (Latest)
+### v1.1.21 (Latest)
+
+- Migrated the old saved default so the first mirroring session after upgrading performs a real screen-off instead of only reducing brightness.
+- An explicit user choice to disable automatic screen-off remains preserved.
+
+### v1.1.20
 
 - The remote screen is now off by default during mirroring; press the physical power button on the remote device when you need to use it directly.
 - Fixed the remote screen turning back on when returning to the controller page, rebuilding the Surface, or retrying screenshot capture after the user had turned it off.

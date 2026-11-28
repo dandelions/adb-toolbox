@@ -132,6 +132,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         private const val KEY_FULLSCREEN = "scrcpy_fullscreen"
         private const val KEY_GESTURE_GUARD = "scrcpy_gesture_guard"
         private const val KEY_SCREEN_OFF = "scrcpy_screen_off"
+        private const val KEY_SCREEN_OFF_DEFAULT_MIGRATED = "scrcpy_screen_off_default_migrated"
         private const val KEY_AUDIO_FORWARD = "scrcpy_audio_forward"
         private const val KEY_AUDIO_SOURCE = "scrcpy_audio_source"
         private const val KEY_AUDIO_QUALITY = "scrcpy_audio_quality"
@@ -266,6 +267,15 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         config.isFullscreen = prefs.getBoolean(KEY_FULLSCREEN, false)
         config.gestureGuard = prefs.getBoolean(KEY_GESTURE_GUARD, true)
+        if (!prefs.getBoolean(KEY_SCREEN_OFF_DEFAULT_MIGRATED, false)) {
+            // The old default was false; migrate that implicit value to the new default once.
+            if (!prefs.contains(KEY_SCREEN_OFF) || !prefs.getBoolean(KEY_SCREEN_OFF, false)) {
+                prefs.edit()
+                    .putBoolean(KEY_SCREEN_OFF, true)
+                    .putBoolean(KEY_SCREEN_OFF_DEFAULT_MIGRATED, true)
+                    .apply()
+            }
+        }
         config.turnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, true)
         config.enableAudio = prefs.getBoolean(KEY_AUDIO_FORWARD, true) // 默认开启声音传输
         config.audioSource = prefs.getInt(KEY_AUDIO_SOURCE, 0) // 默认采用免安装免弹窗的系统原生内录优先
