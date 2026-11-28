@@ -160,7 +160,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Changelog
 
-### v1.1.17 (Latest)
+### v1.1.18 (Latest)
+
+- Fixed Android 14 remote screen-off behavior by correcting the scrcpy power-mode protocol, flushing control packets, and verifying the actual display power state.
+- Added an Android 14 power-key fallback when the scrcpy control channel does not take effect, and stopped treating brightness-only dimming as a successful screen-off operation.
+
+### v1.1.17
 
 - Added Simplified Chinese and English app languages, with an in-app language menu and Android per-app language support.
 - Added English translations across connection, mirroring, audio, clipboard, file management, app management, terminal, and Fastboot features.

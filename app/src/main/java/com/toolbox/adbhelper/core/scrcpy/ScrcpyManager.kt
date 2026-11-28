@@ -1118,9 +1118,7 @@ class ScrcpyManager(
                 while (!Thread.currentThread().isInterrupted && isStreaming.get()) {
                     val packet = controlQueue.take()
                     out.write(packet)
-                    if (controlQueue.isEmpty()) {
-                        out.flush()
-                    }
+                    out.flush()
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
@@ -1325,7 +1323,11 @@ class ScrcpyManager(
         val stream = controlStream
         if (stream == null || stream.isClosed()) return false
         return try {
-            controlQueue.offer(byteArrayOf(10.toByte(), if (mode != 0) 1 else 0))
+            val packet = byteArrayOf(10.toByte(), mode.toByte())
+            synchronized(controlQueue) {
+                controlQueue.clear()
+                controlQueue.offer(packet)
+            }
             Log.i(TAG, "Queued scrcpy display power mode: $mode")
             true
         } catch (e: Exception) {
@@ -1529,22 +1531,40 @@ class ScrcpyManager(
             Log.w(TAG, "Control channel unavailable for display power-off, dimming only")
         }
 
-        // 双保险：面板关闭 + 亮度压暗，避免任一条通路失效时仍有亮光
-        val dimmed = applyBrightnessDim()
-        screenOffRequested = true
-        return@withContext powerOffSent || dimmed
+        var poweredOff = isDisplayStateOff()
+        if (!poweredOff && remoteSdkVersion >= 34) {
+            // Android 14 devices may ignore SurfaceControl power mode from the scrcpy server.
+            // The ADB power key turns the panel off while svc power stayon keeps the stream alive.
+            try {
+                adbClient.executeShell("input keyevent 26", 3000)
+                kotlinx.coroutines.delay(250)
+                poweredOff = isDisplayStateOff()
+            } catch (e: Exception) {
+                Log.w(TAG, "Android 14 power-key screen-off fallback failed: ${e.message}")
+            }
+        }
+        if (poweredOff) {
+            screenOffRequested = true
+            isDeviceScreenOn = false
+            return@withContext true
+        }
+
+        // Last resort: dim the panel, but do not claim that the display is powered off.
+        applyBrightnessDim()
+        screenOffRequested = false
+        return@withContext false
     }
 
     /** 直接读取显示面板状态，显示电源关闭后 dumpsys 会变为 state OFF */
     private fun isDisplayStateOff(): Boolean {
         return try {
             val out = adbClient.executeShell(
-                "dumpsys display 2>/dev/null | grep -m1 mBaseDisplayInfo",
+                "dumpsys SurfaceFlinger 2>/dev/null | grep -m1 powerMode",
                 3000
             )
-            out.contains("state OFF")
+            out.contains("powerMode=Off", ignoreCase = true)
         } catch (e: Exception) {
-            Log.w(TAG, "Read display state failed: ${e.message}")
+            Log.w(TAG, "Read display power state failed: ${e.message}")
             false
         }
     }
