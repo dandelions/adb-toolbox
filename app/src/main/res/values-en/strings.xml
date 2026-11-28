@@ -284,6 +284,10 @@
     <string name="turn_screen_on">Remote screen turned on</string>
     <string name="turn_screen_off">Remote screen turned off; mirroring continues in background</string>
     <string name="screen_off_unsupported">Screen-off mirroring is not supported while the device is locked</string>
+    <string name="screen_status_off">Screen: Off</string>
+    <string name="screen_status_dimmed">Screen: Dimmed (still on)</string>
+    <string name="screen_status_on">Screen: On</string>
+    <string name="screen_status_unknown">Screen: Unknown</string>
     <string name="headset_plugged_toast">Virtual headset connected; remote speaker muted</string>
     <string name="headset_unplugged_toast">Virtual headset disconnected; remote speaker restored</string>
     <string name="wake_unlock_sent">Wake and unlock commands sent to the remote device</string>

@@ -131,6 +131,19 @@
             android:textSize="11sp" />
 
         <TextView
+            android:id="@+id/tvScreenPowerStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_tag"
+            android:backgroundTint="#33FFFFFF"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="@string/screen_status_unknown"
+            android:textColor="#FFD54F"
+            android:textSize="11sp" />
+
+        <TextView
             android:id="@+id/btnQuickSwitchMode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

@@ -109,6 +109,7 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var isFabMovedByUser = false
     private var wasAudioInterruptedByBgSilence = false
     private var bgSilenceMonitorJob: Job? = null
+    private var screenStatusJob: Job? = null
 
     // 全屏手势防误触（解决主控机底部上滑返回桌面误触对端按键）
     private var isBottomGesturePending = false
@@ -393,11 +394,13 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
             if (isScreenOff) {
                 manager.turnScreenOn()
                 isScreenOff = false
+                refreshScreenStatus()
                 Toast.makeText(this@ScrcpyActivity, R.string.turn_screen_on, Toast.LENGTH_SHORT).show()
             } else {
                 val changed = manager.turnScreenOff()
                 if (changed) {
                     isScreenOff = true
+                    refreshScreenStatus()
                     Toast.makeText(this@ScrcpyActivity, R.string.turn_screen_off, Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this@ScrcpyActivity, R.string.screen_off_unsupported, Toast.LENGTH_SHORT).show()
@@ -964,6 +967,32 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // 从后台切回前台时，主动检查连接并恢复推流与画布绑定
         checkAndResumeStream()
         startLockWatcher()
+        startScreenStatusWatcher()
+    }
+
+    private fun startScreenStatusWatcher() {
+        screenStatusJob?.cancel()
+        screenStatusJob = lifecycleScope.launch {
+            while (isActive && isActivityResumed) {
+                refreshScreenStatus()
+                delay(1500)
+            }
+        }
+    }
+
+    private suspend fun refreshScreenStatus() {
+        val manager = scrcpyManager ?: return
+        val state = manager.getRemoteScreenState()
+        withContext(Dispatchers.Main) {
+            val (textRes, color) = when (state) {
+                ScrcpyManager.RemoteScreenState.OFF -> R.string.screen_status_off to "#80CBC4"
+                ScrcpyManager.RemoteScreenState.DIMMED -> R.string.screen_status_dimmed to "#FFD54F"
+                ScrcpyManager.RemoteScreenState.ON -> R.string.screen_status_on to "#81C784"
+                ScrcpyManager.RemoteScreenState.UNKNOWN -> R.string.screen_status_unknown to "#B0BEC5"
+            }
+            binding.tvScreenPowerStatus.setText(textRes)
+            binding.tvScreenPowerStatus.setTextColor(android.graphics.Color.parseColor(color))
+        }
     }
 
     private fun startLockWatcher() {
@@ -987,6 +1016,8 @@ class ScrcpyActivity : AppCompatActivity(), SurfaceHolder.Callback {
         isActivityResumed = false
         lockBannerJob?.cancel()
         lockBannerJob = null
+        screenStatusJob?.cancel()
+        screenStatusJob = null
     }
 
     override fun onStop() {

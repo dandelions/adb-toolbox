@@ -171,6 +171,42 @@ class ScrcpyManager(
 
     fun hasControl(): Boolean = controlStream != null && controlStream?.isClosed() != true
 
+    enum class RemoteScreenState {
+        OFF,
+        DIMMED,
+        ON,
+        UNKNOWN
+    }
+
+    suspend fun getRemoteScreenState(): RemoteScreenState = withContext(Dispatchers.IO) {
+        try {
+            val display = adbClient.executeShell(
+                "dumpsys SurfaceFlinger 2>/dev/null | grep -m1 powerMode",
+                3000
+            )
+            if (display.contains("powerMode=Off", ignoreCase = true)) {
+                return@withContext RemoteScreenState.OFF
+            }
+            if (!display.contains("powerMode=On", ignoreCase = true)) {
+                return@withContext RemoteScreenState.UNKNOWN
+            }
+
+            val brightness = adbClient.executeShell(
+                "settings get system screen_brightness_float; settings get system screen_brightness",
+                3000
+            ).lineSequence().mapNotNull { it.trim().toFloatOrNull() }.firstOrNull()
+            when {
+                brightness == null -> RemoteScreenState.ON
+                brightness <= 0.01f -> RemoteScreenState.DIMMED
+                brightness <= 3f -> RemoteScreenState.DIMMED
+                else -> RemoteScreenState.ON
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Read remote screen state failed: ${e.message}")
+            RemoteScreenState.UNKNOWN
+        }
+    }
+
     fun isScreenOffRequested(): Boolean = screenOffRequested
 
     fun isSecureLockScreenShowing(): Boolean = isSecureKeyguardShowing

@@ -285,6 +285,10 @@
     <string name="turn_screen_on">已唤醒被控端屏幕</string>
     <string name="turn_screen_off">已熄灭被控端屏幕 (投屏后台运行)</string>
     <string name="screen_off_unsupported">当前设备暂不支持在锁屏投屏时熄屏</string>
+    <string name="screen_status_off">屏幕状态: 已熄屏</string>
+    <string name="screen_status_dimmed">屏幕状态: 暗屏显示</string>
+    <string name="screen_status_on">屏幕状态: 亮屏显示</string>
+    <string name="screen_status_unknown">屏幕状态: 未知</string>
     <string name="headset_plugged_toast">虚拟耳机已接入：被控端外放已静音</string>
     <string name="headset_unplugged_toast">虚拟耳机已拔出：被控端外放已恢复</string>
     <string name="wake_unlock_sent">已向对端发送唤醒与解锁指令</string>

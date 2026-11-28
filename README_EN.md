@@ -160,7 +160,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Changelog
 
-### v1.1.21 (Latest)
+### v1.1.22 (Latest)
+
+- Added a real-time remote screen status indicator to the mirroring assistant: Off, Dimmed (still on), On, or Unknown.
+- The status combines display power state and brightness and refreshes during mirroring.
+
+### v1.1.21
 
 - Migrated the old saved default so the first mirroring session after upgrading performs a real screen-off instead of only reducing brightness.
 - An explicit user choice to disable automatic screen-off remains preserved.
